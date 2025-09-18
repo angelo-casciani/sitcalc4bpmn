@@ -1,0 +1,3 @@
+[submodule "indigolog"]
+	path = indigolog
+	url = https://github.com/ai-krml-uoft/indigolog

@@ -103,9 +103,12 @@ class Translator:
         
         # Add pool fluents
         if self.parser.pools:
-            pools_str = ', '.join([f"'{p}'" for p in self.parser.pools])
+            pools_str = ', '.join([f"'{p.lower()}'" for p in self.parser.pools])
             content.append(f"rel_fluent(pool(P)) :- member(P, [{pools_str}]).")
             content.append("rel_fluent(waiting(_ID, _POOL)).")
+        
+        # Add servers_stopped fluent
+        content.append("rel_fluent(servers_stopped).")
         
         # Generate causes_true/causes_false for gateway conditions
         content.extend(self.generate_gateway_causes())
@@ -141,22 +144,23 @@ class Translator:
                 content.append(f"prim_action({task_name}(start, _ID)).")
                 content.append(f"prim_action({task_name}(end, _ID)).")
             
-            # Add basic precondition - for now, just require some start event
-            if self.parser.start_events:
-                start_event = self.parser.start_events[0].replace(' ', '_')
-                content.append(f"poss({task_name}(start, ID), done({start_event}(ID))).")
+            # Add precondition based on flows and data
+            precondition = self.generate_precondition(task['name'], task['id'])
+            content.append(f"poss({task_name}(start, ID), {precondition}).")
         
         # Generate simple actions for throw message events
         for event in self.parser.throw_message_events:
             event_name = event.replace(' ', '_')
             content.append(f"prim_action({event_name}(_ID)).")
-            content.append(f"poss({event_name}(ID), true).")  # Basic precondition
+            precondition = self.generate_precondition(event)
+            content.append(f"poss({event_name}(ID), {precondition}).")
         
         # Generate simple actions for end events
         for event in self.parser.end_events:
             event_name = event.replace(' ', '_')
             content.append(f"prim_action({event_name}(_ID)).")
-            content.append(f"poss({event_name}(ID), true).")  # Basic precondition
+            precondition = self.generate_precondition(event)
+            content.append(f"poss({event_name}(ID), {precondition}).")
         
         content.append("")
         return content
@@ -207,6 +211,10 @@ class Translator:
                 content.append(f"exog_action({task_name}(end, _ID)).")
                 content.append(f"poss({task_name}(end, ID), running({task_name}(start, ID))).")
         
+        # Add shut_down exogenous action
+        content.append("exog_action(shut_down).")
+        content.append("poss(shut_down, and(neg(servers_stopped), neg(active_instances_check))).")
+        
         content.append("")
         return content
 
@@ -217,6 +225,10 @@ class Translator:
         content.append("% default running/1 when start and end actions have the same number of arguments")
         content.append("proc(running(A1), and(done(A1), neg(done(A2)))) :-")
         content.append("  A1 =.. [F|[start|L]], A2 =.. [F|[end|L]].")
+        
+        # Add active_instances_check
+        content.append("proc(active_instances_check, some(id, active(id))).")
+        
         content.append("")
         return content
 
@@ -307,6 +319,9 @@ class Translator:
         content.append("causes_false(application_finalised(ID), active(ID), true).")
         content.append("causes_false(withdrawal_completed(ID), active(ID), true).")
         
+        # Servers stopped
+        content.append("causes_true(shut_down, servers_stopped, true).")
+        
         return content
 
     def generate_waiting_causes(self):
@@ -316,7 +331,7 @@ class Translator:
         # Start events cause waiting for the first pool
         if self.parser.start_events and self.parser.pools:
             start_event = self.parser.start_events[0].replace(' ', '_')
-            first_pool = self.parser.pools[0]
+            first_pool = self.parser.pools[0].lower()
             content.append(f"causes_true({start_event}(ID), waiting(ID, {first_pool}), true).")
         
         # Throw message events cause waiting for the next pool
@@ -324,19 +339,19 @@ class Translator:
             event_name = event.replace(' ', '_')
             # For application_sent, it causes waiting for company
             if 'application_sent' in event_name and len(self.parser.pools) > 1:
-                content.append(f"causes_true({event_name}(ID), waiting(ID, {self.parser.pools[1]}), true).")
+                content.append(f"causes_true({event_name}(ID), waiting(ID, {self.parser.pools[1].lower()}), true).")
         
         # End events clear waiting
         for event in self.parser.end_events:
             event_name = event.replace(' ', '_')
             if self.parser.pools:
                 for pool in self.parser.pools:
-                    content.append(f"causes_false({event_name}(ID), waiting(ID, {pool}), true).")
+                    content.append(f"causes_false({event_name}(ID), waiting(ID, {pool.lower()}), true).")
         
         # Application analysed also clears waiting
         if self.parser.pools:
             for pool in self.parser.pools:
-                content.append(f"causes_false(application_analysed(ID), waiting(ID, {pool}), true).")
+                content.append(f"causes_false(application_analysed(ID), waiting(ID, {pool.lower()}), true).")
         
         return content
 
@@ -367,8 +382,83 @@ class Translator:
             content.append("initially(pool(_P), true).")
             content.append("initially(waiting(_ID, _POOL), false).")
         
+        # Initialize servers_stopped
+        content.append("initially(servers_stopped, false).")
+        
         content.append("")
         return content
+
+    def generate_precondition(self, activity_name, activity_id=None):
+        """Generate precondition based on incoming flows and data associations"""
+        conditions = []
+        
+        # Find incoming sequence flows
+        for source, target in self.parser.flows:
+            if target == activity_name:
+                task_id = None
+                # Check if source is a task
+                for task in self.parser.tasks:
+                    if task['name'] == source:
+                        conditions.append(f"done({source.replace(' ', '_')}(end, ID))")
+                        task_id = task['id']
+                        break
+                # Check if source is a throw message event
+                for event in self.parser.throw_message_events:
+                    if event == source:
+                        conditions.append(f"done({event.replace(' ', '_')}(ID))")
+                        break
+                # Check if source is a catch message event (may correspond to throw)
+                for event in self.parser.catch_message_events:
+                    if event == source:
+                        # Assume it corresponds to a throw event with similar name
+                        throw_name = event.replace(' received', '_sent').replace(' ', '_')
+                        conditions.append(f"done({throw_name}(ID))")
+                        break
+                # Check if source is a gateway
+                for gateway in self.parser.xor_gateways + self.parser.parallel_gateways + self.parser.event_based_gateways:
+                    if gateway['name'] == source:
+                        fluent_name = gateway['name'].lower().replace('?', '').replace(' ', '_')
+                        conditions.append(f"{fluent_name}(ID)")
+                        break
+                # Check if source is a start event (message start)
+                if source in self.parser.start_events and 'received' in source:
+                    throw_name = source.replace(' received', '_sent').replace(' ', '_')
+                    conditions.append(f"done({throw_name}(ID))")
+                
+                # If task_id found, check for output data associations
+                if task_id:
+                    for assoc in self.parser.data_associations:
+                        if assoc['type'] == 'output' and assoc['activity'] == task_id:
+                            data_obj_name = None
+                            for data_obj in self.parser.data_objects:
+                                if data_obj['id'] == assoc['data_object']:
+                                    data_obj_name = data_obj['name'].replace(' ', '_')
+                                    break
+                            if data_obj_name:
+                                conditions.append(f"{data_obj_name}(ID)")
+        
+        # Find input data associations (only if activity_id is provided)
+        if activity_id:
+            for assoc in self.parser.data_associations:
+                if assoc['type'] == 'input' and assoc['activity'] == activity_id:
+                    data_obj_name = None
+                    for data_obj in self.parser.data_objects:
+                        if data_obj['id'] == assoc['data_object']:
+                            data_obj_name = data_obj['name'].replace(' ', '_')
+                            break
+                    if data_obj_name:
+                        conditions.append(f"{data_obj_name}(ID)")
+        
+        # Combine conditions
+        if not conditions:
+            return "true"
+        elif len(conditions) == 1:
+            return conditions[0]
+        else:
+            result = conditions[0]
+            for cond in conditions[1:]:
+                result = f"and({result}, {cond})"
+            return result
 
     def generate_procedures(self):
         content = []

@@ -1,3 +1,14 @@
+/* Job Application process MAIN file 
+
+    This file is the main file for the job application process. It
+    loads the necessary files and starts the application.
+
+    The application is a process simulator that is controlled by
+    an INDIGOLOG program. A TCL/TK interface can be used to issue
+    exogenous events/actions.
+*/
+
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % CONSULT INDIGOLOG FRAMEWORK
 %
@@ -14,7 +25,7 @@
 % CONSULT APPLICATION
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-:- [REPLACE].
+:- [job_application].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % SPECIFY ADDRESS OF ENVIRONMENT MANAGER

@@ -18,15 +18,13 @@ id(X) :- ground(X), !.
 id(X) :- between(1, 1, X).
 
 % Domain-dependent Relational Fluents
-rel_fluent(active(_ID)).
-causes_true(job_needed(ID), active(ID), true).
-causes_false(withdrawal_handled(ID), active(ID), true).
-causes_false(application_finalised(ID), active(ID), true).
-causes_false(withdrawal_completed(ID), active(ID), true).
-
-rel_fluent(processed(_ID)).
-causes_true(application_analysed(ID), processed(ID), true).
-causes_true(withdrawal_handled(ID), processed(ID), true).
+rel_fluent(active(_ID, _POOL)).
+causes_true(acquire(ID, POOL), active(ID, POOL), true).
+causes_false(withdrawal_handled(ID), active(ID, company), true).
+causes_false(application_finalised(ID), active(ID, applicant), true).
+causes_false(withdrawal_completed(ID), active(ID, applicant), true).
+causes_false(application_analysed(ID), active(ID, company), true).
+causes_true(withdrawal_handled(ID), active(ID, company), true).
 
 rel_fluent(documents_ok(_ID)).
 causes_true(check_validity(end,  ID, RESULT), documents_ok(ID), RESULT = true).
@@ -43,7 +41,6 @@ causes_false(execute_interview(end,  ID, RESULT), job_offer(ID), RESULT = false)
 rel_fluent(approval(_ID)).
 causes_true(validate_job_offer(end,  ID, RESULT), approval(ID), RESULT = true).
 causes_false(validate_job_offer(end,  ID, RESULT), approval(ID), RESULT = false).
-
 
 rel_fluent(application(_ID)).
 causes_true(prepare_application(end,  ID), application(ID), true).
@@ -124,7 +121,7 @@ prim_action(communicate_recruitment(start, _ID)).
 poss(communicate_recruitment(start, ID), and(done(signed_contract_sent(ID)), signed_contract(ID))).
 
 prim_action(application_analysed(_ID)).
-poss(application_analysed(ID), and(done(application_finalised(ID)), and(neg(done(withdrawal_by_applicant(ID))), or(done(store_signed_contract(end,  ID)), done(letter_of_refusal_sent(ID)))))).
+poss(application_analysed(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(store_signed_contract(end,  ID)), done(letter_of_refusal_sent(ID))))).
 
 prim_action(produce_letter_of_refusal(start, _ID)).
 poss(produce_letter_of_refusal(start, ID), neg(and(documents_ok(ID), and(interview(ID), and(job_offer(ID), approval(ID)))))).
@@ -206,7 +203,7 @@ exog_action(produce_letter_of_refusal(end,  ID)) :- id(ID).
 poss(produce_letter_of_refusal(end,  ID), running(produce_letter_of_refusal(start, ID))).
 
 exog_action(withdrawal_by_applicant(ID)) :- id(ID).
-poss(withdrawal_by_applicant(ID), and(pool(POOL), and(neg(done(application_analysed(ID))), and(neg(done(application_finalised(ID))), and(neg(waiting(ID, POOL)), and(neg(processed(ID)), and(active(ID), neg(done(withdrawal_by_applicant(ID)))))))))).
+poss(withdrawal_by_applicant(ID), and(pool(POOL), and(neg(done(application_analysed(ID))), and(neg(done(application_finalised(ID))), and(neg(waiting(ID, POOL)), and(active(ID, company), and(active(ID, POOL), neg(done(withdrawal_by_applicant(ID)))))))))).
 
 exog_action(confirm_withdrawal(end,  ID)) :- id(ID).
 poss(confirm_withdrawal(end,  ID), running(confirm_withdrawal(start, ID))).
@@ -237,23 +234,11 @@ proc(running(A1), and(done(A1), neg(done(A2)))) :-
 % default running/1 when start and end actions have the same number of arguments
 proc(running(A1), and(done(A1), neg(done(A2)))) :-
   A1 =.. [F|[start|L]], A2 =.. [F|[end|L]].
-proc(active_instances_check, some(id, active(id))).
+proc(active_instances_check, some(id, some(pool, active(id, pool)))).
 
 % Initial Situation
 %
-initially(active(_ID), false).
-initially(documents_ok(_ID), false).
-initially(interview(_ID), false).
-initially(job_offer(_ID), false).
-initially(approval(_ID), false).
-initially(processed(_ID), false).
-initially(application(_ID), false).
-initially(contract(_ID), false).
-initially(signed_contract(_ID), false).
-initially(letter_of_refusal(_ID), false).
 initially(pool(_P), true).
-initially(waiting(_ID, _POOL), false).
-initially(servers_stopped, false).
 
 
 /* TOP-LEVEL APPLICATION CONTROLLER
@@ -281,8 +266,8 @@ It uses exogenous actions for the start event, for the withdrawal, and to shut d
 proc(server_applicant, iconc(pi(app, [acquire(app, applicant), handle_applicant(app)]))).
 
 proc(handle_applicant(ID),
-  [ gexec(and(active(ID), neg(done(withdrawal_by_applicant(ID)))), applicant(ID)),
-    if(and(neg(processed(ID)), done(withdrawal_by_applicant(ID))),
+  [ gexec(and(active(ID, applicant), neg(done(withdrawal_by_applicant(ID)))), applicant(ID)),
+    if(and(active(ID, company), done(withdrawal_by_applicant(ID))),
           [
                confirm_withdrawal(start, ID),
                ?(done(confirm_withdrawal(end,  ID))),
@@ -323,8 +308,8 @@ It uses exogenous actions for the start event, for the withdrawal, and to shut d
 proc(server_company, iconc(pi(app, [acquire(app, company), handle_company(app)]))).
 
 proc(handle_company(ID),
-  [ gexec(and(neg(processed(ID)), neg(done(withdrawal_sent(ID)))), company(ID)),
-    if(and(neg(processed(ID)), done(withdrawal_sent(ID))),
+  [ gexec(and(active(ID, company), neg(done(withdrawal_sent(ID)))), company(ID)),
+    if(and(active(ID, company), done(withdrawal_sent(ID))),
           [
             process_withdrawal(start, ID),
             ?(done(process_withdrawal(end,  ID))),
@@ -420,22 +405,22 @@ proc(company(ID),
 
 % proc(exog_actions, star(exog_action)).
 
-prim_action(end_bpm).
-poss(end_bpm, true).
+prim_action(end_bpmn).
+poss(end_bpmn, true).
 
 proc(exog_actions,
-  if(done(end_bpm), [], [exog_action, exog_actions])).
+  if(done(end_bpmn), [], [exog_action, exog_actions])).
 
 
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
 proc(control(reasoning_task), search(reasoning_task)).
 
 % simulate process BP under exogenous events
-proc(sim(BP), conc([BP, end_bpm], exog_actions)).
+proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
 
 proc(reasoning_task,
   [
-    conc([bpmn_process, end_bpm], exog_actions),
+    conc([bpmn_process, end_bpmn], exog_actions),
     ?(some([id],
           and(signed_contract(id),
               neg(done(application_finalised(id))))))

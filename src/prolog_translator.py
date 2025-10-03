@@ -90,10 +90,17 @@ id(X) :- between(1, 1, X).
                         # Only non-message-catch start events cause waiting
                         causes.append(f"causes_true({elem_name}(ID), waiting(ID, {pool_name}), true).")
                 
-                if 'endEvent' in elem['type'] and elem_name and not self._is_in_subprocess(elem_id, process):
-                    # End events clear active and waiting for their pool
-                    causes.append(f"causes_false({elem_name}(ID), active(ID, {pool_name}), true).")
-                    causes.append(f"causes_false({elem_name}(ID), waiting(ID, {pool_name}), true).")
+                if 'endEvent' in elem['type'] and elem_name:
+                    is_in_subprocess = self._is_in_subprocess(elem_id, process)
+                    is_terminate = elem.get('is_terminate', False)
+                    
+                    if not is_in_subprocess:
+                        # Regular end events clear both active and waiting
+                        causes.append(f"causes_false({elem_name}(ID), active(ID, {pool_name}), true).")
+                        causes.append(f"causes_false({elem_name}(ID), waiting(ID, {pool_name}), true).")
+                    elif is_in_subprocess and is_terminate:
+                        # Terminate end events in subprocesses only clear active (exception handling)
+                        causes.append(f"causes_false({elem_name}(ID), active(ID, {pool_name}), true).")
 
         self._add_data_and_gateway_fluents(fluents, causes)
         
@@ -194,9 +201,17 @@ id(X) :- between(1, 1, X).
                     # Skip them in action generation
                     pass
                 
-                elif 'endEvent' in elem['type'] and not self._is_in_subprocess(elem_id, process):
-                    # End events are primitive actions
-                    action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
+                elif 'endEvent' in elem['type']:
+                    # Check if this is a terminate end event in an event subprocess
+                    is_in_subprocess = self._is_in_subprocess(elem_id, process)
+                    is_terminate = elem.get('is_terminate', False)
+                    
+                    if is_in_subprocess and is_terminate:
+                        # Terminate end events in event subprocesses are completion markers
+                        action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
+                    elif not is_in_subprocess:
+                        # Regular end events (not in subprocess) are primitive actions
+                        action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                 
                 elif 'startEvent' in elem['type']:
                     # Check if this start event is a message catch (target of a message flow)

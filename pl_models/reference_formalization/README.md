@@ -116,6 +116,41 @@ Controllers available: [congolog]
 Select controller: 1.
 ```
 
+To execute the process, the following exogenous events are needed for the happy path in the case of application "1":
+```
+job_needed(1)
+prepare_application(end,1)
+check_validity(end,1,true)
+organize_documents(end,1)
+assign_contact_partner(end,1)
+verify_prerequisites(end,1)
+check_application_for_interview(end,1,true)
+plan_interview(end,1)
+execute_interview(end,1,true)
+obtain_approval(end,1)
+validate_job_offer(end,1,true)
+produce_contract(end,1)
+sign_contract(end,1)
+communicate_recruitment(end,1)
+store_signed_contract(end,1)
+```
+
+These are the exogenous events needed for the application's refusal:
+```
+job_needed(1)
+prepare_application(end,1,application)
+check_validity(end,1,false)
+produce_letter_of_refusal(end,1,letter_of_refusal)
+```
+
+And these are the exogenous events needed for the global exception handling:
+```
+withdrawal_by_applicant(1)
+confirm_withdrawal(end,1)
+process_withdrawal(end,1)
+```
+
+
 ### Reasoning Tasks
 
 These are the queries for the reasoning tasks reported in the AAAI26 submission:

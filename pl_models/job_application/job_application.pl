@@ -38,6 +38,8 @@ causes_false(check_application_for_interview(end, ID, RESULT), interview(ID), RE
 causes_false(check_validity(end, ID, RESULT), documents_ok(ID), RESULT = false).
 causes_false(execute_interview(end, ID, RESULT), job_offer(ID), RESULT = false).
 causes_false(validate_job_offer(end, ID, RESULT), approval(ID), RESULT = false).
+causes_false(withdrawal_completed(ID), active(ID, applicant), true).
+causes_false(withdrawal_handled(ID), active(ID, company), true).
 causes_true(acquire(ID, POOL), active(ID, POOL), true).
 causes_true(application_sent(ID), waiting(ID, company), true).
 causes_true(check_application_for_interview(end, ID, RESULT), interview(ID), RESULT = true).
@@ -70,9 +72,9 @@ poss(application_finalised(ID), or(done(letter_of_refusal_sent(ID)), done(commun
 prim_action(application_sent(_ID)).
 poss(application_sent(ID), and(application(ID), done(prepare_application(end, ID)))).
 prim_action(assign_contact_partner(start, _ID)).
-poss(assign_contact_partner(start, ID), done((ID))).
+poss(assign_contact_partner(start, ID), done(organize_documents(end, ID))).
 prim_action(check_application_for_interview(start, _ID)).
-poss(check_application_for_interview(start, ID), and(application(ID), done((ID)))).
+poss(check_application_for_interview(start, ID), and(application(ID), and(done(assign_contact_partner(end, ID)), done(verify_prerequisites(end, ID))))).
 prim_action(check_validity(start, _ID)).
 poss(check_validity(start, ID), and(application(ID), done(application_sent(ID)))).
 prim_action(communicate_recruitment(start, _ID)).
@@ -98,7 +100,7 @@ poss(process_withdrawal(start, ID), done(withdrawal_sent(ID))).
 prim_action(produce_contract(start, _ID)).
 poss(produce_contract(start, ID), approval(ID)).
 prim_action(produce_letter_of_refusal(start, _ID)).
-poss(produce_letter_of_refusal(start, ID), done((ID))).
+poss(produce_letter_of_refusal(start, ID), or(neg(approval(ID)), neg(documents_ok(ID)), neg(interview(ID)), neg(job_offer(ID)))).
 prim_action(sign_contract(start, _ID)).
 poss(sign_contract(start, ID), and(contract(ID), done(contract_sent(ID)))).
 prim_action(signed_contract_sent(_ID)).
@@ -108,7 +110,11 @@ poss(store_signed_contract(start, ID), and(done(signed_contract_sent(ID)), signe
 prim_action(validate_job_offer(start, _ID)).
 poss(validate_job_offer(start, ID), done(obtain_approval(end, ID))).
 prim_action(verify_prerequisites(start, _ID)).
-poss(verify_prerequisites(start, ID), done((ID))).
+poss(verify_prerequisites(start, ID), done(organize_documents(end, ID))).
+prim_action(withdrawal_completed(_ID)).
+poss(withdrawal_completed(ID), done(withdrawal_sent(ID))).
+prim_action(withdrawal_handled(_ID)).
+poss(withdrawal_handled(ID), and(done(withdrawal_completed(ID)), done(process_withdrawal(end, ID)))).
 prim_action(withdrawal_sent(_ID)).
 poss(withdrawal_sent(ID), done(confirm_withdrawal(end, ID))).
 
@@ -217,13 +223,13 @@ It uses exogenous actions for the start event, for the withdrawal, and to shut d
 proc(server_applicant, iconc(pi(app, [acquire(app, applicant), handle_applicant(app)]))).
 
 proc(applicant(ID),
-  [?(done(job_needed(ID))), [[prepare_application(start, ID), ?(done(prepare_application(end, ID)))], [application_sent(ID), ndet([?(done(contract_sent(ID))), [[sign_contract(start, ID), ?(done(sign_contract(end, ID)))], [signed_contract_sent(ID), [[communicate_recruitment(start, ID), ?(done(communicate_recruitment(end, ID)))], if((ID), application_finalised(ID), [])]]]], [?(done(letter_of_refusal_sent(ID))), if((ID), application_finalised(ID), [])])]]]
+  [prepare_application(start, ID), ?(done(prepare_application(end, ID))), application_sent(ID), ndet([?(done(contract_sent(ID))), [sign_contract(start, ID), ?(done(sign_contract(end, ID))), signed_contract_sent(ID), communicate_recruitment(start, ID), ?(done(communicate_recruitment(end, ID))), application_finalised(ID)]], [?(done(letter_of_refusal_sent(ID))), application_finalised(ID)])]
 ).
 
 proc(handle_applicant(ID),
   [ gexec(and(active(ID, applicant), neg(done(withdrawal_by_applicant(ID)))), applicant(ID)),
     if(and(active(ID, company), done(withdrawal_by_applicant(ID))),
-          [?(done(withdrawal_by_applicant(ID))), [[confirm_withdrawal(start, ID), ?(done(confirm_withdrawal(end, ID)))], [withdrawal_sent(ID), withdrawal_completed(ID)]]],
+          [confirm_withdrawal(start, ID), ?(done(confirm_withdrawal(end, ID))), withdrawal_sent(ID), withdrawal_completed(ID)],
           []  % empty else
       )
   ]
@@ -239,13 +245,13 @@ It uses exogenous actions for the start event, for the withdrawal, and to shut d
 proc(server_company, iconc(pi(app, [acquire(app, company), handle_company(app)]))).
 
 proc(company(ID),
-  [?(done(application_sent(ID))), [[check_validity(start, ID), ?(some(res, done(check_validity(end, ID, res))))], if(documents_ok(ID), [[organize_documents(start, ID), ?(done(organize_documents(end, ID)))], [conc(assign_contact_partner(start, ID), verify_prerequisites(start, ID)), ?(and(done(assign_contact_partner(end, ID)), done(verify_prerequisites(end, ID)))), [[check_application_for_interview(start, ID), ?(some(res, done(check_application_for_interview(end, ID, res))))], if(interview(ID), [[plan_interview(start, ID), ?(done(plan_interview(end, ID)))], [[execute_interview(start, ID), ?(some(res, done(execute_interview(end, ID, res))))], if(job_offer(ID), [[obtain_approval(start, ID), ?(done(obtain_approval(end, ID)))], [[validate_job_offer(start, ID), ?(some(res, done(validate_job_offer(end, ID, res))))], if(approval(ID), [[produce_contract(start, ID), ?(done(produce_contract(end, ID)))], [contract_sent(ID), [?(done(signed_contract_sent(ID))), [[store_signed_contract(start, ID), ?(done(store_signed_contract(end, ID)))], if((ID), application_analysed(ID), [])]]]], if((ID), [[produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID)))], [letter_of_refusal_sent(ID), if((ID), application_analysed(ID), [])]], []))]], if((ID), [[produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID)))], [letter_of_refusal_sent(ID), if((ID), application_analysed(ID), [])]], []))]], if((ID), [[produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID)))], [letter_of_refusal_sent(ID), if((ID), application_analysed(ID), [])]], []))]]], if((ID), [[produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID)))], [letter_of_refusal_sent(ID), if((ID), application_analysed(ID), [])]], []))]]
+  [check_validity(start, ID), ?(some(res, done(check_validity(end, ID, res)))), if(documents_ok(ID), [organize_documents(start, ID), ?(done(organize_documents(end, ID))), conc(assign_contact_partner(start, ID), verify_prerequisites(start, ID)), ?(and(done(assign_contact_partner(end, ID)), done(verify_prerequisites(end, ID)))), [check_application_for_interview(start, ID), ?(some(res, done(check_application_for_interview(end, ID, res)))), if(interview(ID), [plan_interview(start, ID), ?(done(plan_interview(end, ID))), execute_interview(start, ID), ?(some(res, done(execute_interview(end, ID, res)))), if(job_offer(ID), [obtain_approval(start, ID), ?(done(obtain_approval(end, ID))), validate_job_offer(start, ID), ?(some(res, done(validate_job_offer(end, ID, res)))), if(approval(ID), [produce_contract(start, ID), ?(done(produce_contract(end, ID))), contract_sent(ID), [?(done(signed_contract_sent(ID))), store_signed_contract(start, ID), ?(done(store_signed_contract(end, ID))), application_analysed(ID)]], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])]], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])]
 ).
 
 proc(handle_company(ID),
   [ gexec(and(active(ID, company), neg(done(withdrawal_sent(ID)))), company(ID)),
     if(and(active(ID, company), done(withdrawal_sent(ID))),
-          [?(done(withdrawal_sent(ID))), [[process_withdrawal(start, ID), ?(done(process_withdrawal(end, ID)))], withdrawal_handled(ID)]],
+          [process_withdrawal(start, ID), ?(done(process_withdrawal(end, ID))), withdrawal_handled(ID)],
           []  % empty else
       )
   ]

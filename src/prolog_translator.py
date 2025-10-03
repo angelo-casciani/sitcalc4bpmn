@@ -344,19 +344,14 @@ id(X) :- between(1, 1, X).
         elem_name = self._prologify(elem['name'])
         
         if 'startEvent' in elem['type']:
-            # Check if this is a message catch start event
-            is_message_catch = any(v == elem_id for v in self.parser.message_flows.values())
-            if is_message_catch:
-                # Find the throw event and wait for it
-                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == elem_id), None)
-                source_elem = self._find_element_by_id(source_msg_id) if source_msg_id else None
-                if source_elem:
-                    source_name = self._prologify(source_elem['name'])
-                    current_proc = f"?(done({source_name}(ID)))"
-                else:
-                    current_proc = f"?(done({elem_name}(ID)))"
+            # Start events: skip and go to next element
+            # (start events are handled by the server/acquire mechanism, not in the procedure body)
+            outgoing_flows = elem.get('outgoing', [])
+            if outgoing_flows:
+                next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                return self._build_proc_for_element(next_elem_id, process_data, visited)
             else:
-                current_proc = f"?(done({elem_name}(ID)))"
+                return "[]"
         elif 'task' in elem['type']:
             wait_action = f"?(some(res, done({elem_name}(end, ID, res))))" if self._is_decision_task(elem_id, process_data) else f"?(done({elem_name}(end, ID)))"
             current_proc = f"[{elem_name}(start, ID), {wait_action}]"
@@ -381,12 +376,22 @@ id(X) :- between(1, 1, X).
         if not outgoing_flows: return current_proc or "[]"
         
         if 'exclusiveGateway' in elem['type']:
-            cond_fluent = self._prologify(elem['name'])
-            default_flow_id = elem.get('default')
-            then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
-            then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
-            else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
-            return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+            # Check if this is a merge gateway (multiple incoming, single outgoing)
+            incoming_flows = elem.get('incoming', [])
+            is_merge = len(incoming_flows) > 1 and len(outgoing_flows) == 1
+            
+            if is_merge:
+                # Merge gateway - just pass through to the next element
+                next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                return self._build_proc_for_element(next_elem_id, process_data, visited)
+            else:
+                # Split gateway - generate if statement
+                cond_fluent = self._prologify(elem['name'])
+                default_flow_id = elem.get('default')
+                then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
+                else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
+                return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
         elif 'eventBasedGateway' in elem['type']:
             branches = []
             for flow_id in outgoing_flows:
@@ -441,7 +446,29 @@ id(X) :- between(1, 1, X).
         
         next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
         next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
-        return f"[{current_proc}, {next_proc}]" if current_proc and next_proc != "[]" else current_proc or next_proc
+        
+        # Build sequence with proper flattening to avoid excessive nesting
+        if not current_proc:
+            return next_proc
+        if next_proc == "[]":
+            return current_proc
+        
+        # Check if current_proc or next_proc are lists (but not special constructs like [?(...)])
+        current_is_list = current_proc.startswith('[') and not current_proc.startswith('[?')
+        next_is_list = next_proc.startswith('[') and not next_proc.startswith('[?')
+        
+        if current_is_list and next_is_list:
+            # Both are lists - merge: [a, b] + [c, d] -> [a, b, c, d]
+            return f"[{current_proc[1:-1]}, {next_proc[1:-1]}]"
+        elif current_is_list:
+            # Current is list - append next: [a, b] + c -> [a, b, c]
+            return f"[{current_proc[1:-1]}, {next_proc}]"
+        elif next_is_list:
+            # Next is list - prepend current: a + [b, c] -> [a, b, c]
+            return f"[{current_proc}, {next_proc[1:-1]}]"
+        else:
+            # Neither is list - create new list: a + b -> [a, b]
+            return f"[{current_proc}, {next_proc}]"
 
     def _get_all_path_conditions(self, start_node_id, process_data):
         paths = []

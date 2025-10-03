@@ -24,7 +24,6 @@ causes_false(withdrawal_handled(ID), active(ID, company), true).
 causes_false(application_finalised(ID), active(ID, applicant), true).
 causes_false(withdrawal_completed(ID), active(ID, applicant), true).
 causes_false(application_analysed(ID), active(ID, company), true).
-causes_true(withdrawal_handled(ID), active(ID, company), true).
 
 rel_fluent(documents_ok(_ID)).
 causes_true(check_validity(end,  ID, RESULT), documents_ok(ID), RESULT = true).

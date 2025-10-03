@@ -1,4 +1,5 @@
 import re
+from prolog_templates import *
 
 class PrologTranslator:
     def __init__(self, parser):
@@ -36,25 +37,11 @@ class PrologTranslator:
         return code
 
     def _generate_header(self):
-        return """
-:- dynamic controller/1.
-:- discontiguous
-    fun_fluent/1,
-    rel_fluent/1,
-    proc/2,
-    causes_true/3,
-    causes_false/3.
-
-cache(_) :- fail.
-
-id(X) :- ground(X), !.
-id(X) :- between(1, 1, X).
-
-"""
+        return PROLOG_HEADER
 
     def _generate_fluents_and_causes(self):
-        fluents = {'active(_ID, _POOL)', 'servers_stopped'}
-        causes = []
+        fluents = set(STANDARD_FLUENTS)
+        causes = list(STANDARD_CAUSES)
         
         pool_names = [self._prologify(p['name']) for p in self.parser.participants.values()]
         fluents.add(f"pool(P) :- member(P, [{', '.join(pool_names)}]).")
@@ -104,8 +91,8 @@ id(X) :- between(1, 1, X).
 
         self._add_data_and_gateway_fluents(fluents, causes)
         
-        fluent_code = "\n% Fluents\n" + "\n".join([f"rel_fluent({f})." for f in sorted(list(fluents)) if ':-' not in f]) + "\n" + "\n".join([f for f in fluents if ':-' in f]) + "\n\n"
-        cause_code = "\n% Causal Laws\n" + "\n".join(sorted(list(set(causes)))) + "\n"
+        fluent_code = FLUENTS_HEADER + "\n".join([f"rel_fluent({f})." for f in sorted(list(fluents)) if ':-' not in f]) + "\n" + "\n".join([f for f in fluents if ':-' in f]) + "\n\n"
+        cause_code = CAUSAL_LAWS_HEADER + "\n".join(sorted(list(set(causes)))) + "\n"
         init_code = self._generate_initial_state(fluents)
         return fluent_code + cause_code + init_code
 
@@ -130,17 +117,9 @@ id(X) :- between(1, 1, X).
                         causes.append(f"causes_true({self._prologify(elem['name'])}(end, ID), {fluent_name}(ID), true).")
 
     def _generate_actions_and_preconditions(self):
-        code = "\n% Actions and Preconditions\n%\n"
+        code = ACTIONS_PRECONDITIONS_HEADER
         action_defs = []
         exog_actions_list = []
-
-        # Special hard-coded preconditions for end events and special cases
-        special_preconditions = {
-            'withdrawal_handled': 'and(done(withdrawal_completed(ID)), done(process_withdrawal(end, ID)))',
-            'application_analysed': 'and(neg(done(withdrawal_by_applicant(ID))), or(done(store_signed_contract(end, ID)), done(letter_of_refusal_sent(ID))))',
-            'application_finalised': 'or(done(letter_of_refusal_sent(ID)), done(communicate_recruitment(end, ID)))',
-            'withdrawal_completed': 'done(withdrawal_sent(ID))'
-        }
 
         for proc_id, process in self.parser.processes.items():
             for elem_id, elem in process['elements'].items():
@@ -149,39 +128,36 @@ id(X) :- between(1, 1, X).
                     continue
 
                 # Get precondition
-                if elem_name in special_preconditions:
-                    poss_cond = special_preconditions[elem_name]
-                else:
-                    path_conditions = self._get_all_path_conditions(elem_id, process)
-                    data_conditions = [self._prologify(self.parser.data_objects[do_id]['name']) + "(ID)" 
-                                     for do_id in elem.get('data_inputs', []) if do_id in self.parser.data_objects]
+                path_conditions = self._get_all_path_conditions(elem_id, process)
+                data_conditions = [self._prologify(self.parser.data_objects[do_id]['name']) + "(ID)" 
+                                 for do_id in elem.get('data_inputs', []) if do_id in self.parser.data_objects]
+                
+                final_conditions = []
+                for path in path_conditions:
+                    all_conds = sorted(list(set(path + data_conditions)))
                     
-                    final_conditions = []
-                    for path in path_conditions:
-                        all_conds = sorted(list(set(path + data_conditions)))
-                        
-                        # Check if this path contains ONLY fluent conditions (no done() calls)
-                        # If so, it means we're immediately after an exclusive gateway controlled by a fluent
-                        # neg() is OK - it's still a fluent condition
-                        has_done_conditions = any(cond.startswith('done(') for cond in all_conds)
-                        
-                        # If we have only fluent conditions (no done), use them as-is
-                        if not has_done_conditions:
-                            if len(all_conds) > 1:
-                                final_conditions.append(self._build_nested_and(all_conds))
-                            elif all_conds:
-                                final_conditions.append(all_conds[0])
-                        elif len(all_conds) > 1: 
+                    # Check if this path contains ONLY fluent conditions (no done() calls)
+                    # If so, it means we're immediately after an exclusive gateway controlled by a fluent
+                    # neg() is OK - it's still a fluent condition
+                    has_done_conditions = any(cond.startswith('done(') for cond in all_conds)
+                    
+                    # If we have only fluent conditions (no done), use them as-is
+                    if not has_done_conditions:
+                        if len(all_conds) > 1:
                             final_conditions.append(self._build_nested_and(all_conds))
-                        elif all_conds: 
+                        elif all_conds:
                             final_conditions.append(all_conds[0])
-                    
-                    if len(final_conditions) > 1: 
-                        poss_cond = "or(" + ", ".join(sorted(list(set(final_conditions)))) + ")"
-                    elif final_conditions: 
-                        poss_cond = final_conditions[0]
-                    else: 
-                        poss_cond = "true"
+                    elif len(all_conds) > 1: 
+                        final_conditions.append(self._build_nested_and(all_conds))
+                    elif all_conds: 
+                        final_conditions.append(all_conds[0])
+                
+                if len(final_conditions) > 1: 
+                    poss_cond = "or(" + ", ".join(sorted(list(set(final_conditions)))) + ")"
+                elif final_conditions: 
+                    poss_cond = final_conditions[0]
+                else: 
+                    poss_cond = "true"
 
                 # Generate action definitions
                 if 'task' in elem['type']:
@@ -222,27 +198,26 @@ id(X) :- between(1, 1, X).
                         pass
                     elif self._is_in_subprocess(elem_id, process):
                         # Event subprocess start events are exogenous
-                        exog_actions_list.append((f"{elem_name}(_ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
+                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
                     else:
                         # Regular main process start events are exogenous
-                        exog_actions_list.append((f"{elem_name}(_ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
+                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
 
         # Add acquire action
-        action_defs.append(f"prim_action(acquire(_ID, _POOL)).\nposs(acquire(ID, POOL), and(id(ID), and(waiting(ID, POOL), pool(POOL)))).")
+        action_defs.append(ACQUIRE_ACTION.strip())
         
         code += "\n".join(sorted(list(set(action_defs)))) + "\n"
         
         # Generate exogenous actions section
-        code += "\n% Exogenous Action\n%\n"
-        code += "prim_action(Act) :- exog_action(Act).\n\n"
+        code += EXOGENOUS_ACTIONS_HEADER
+        code += EXOGENOUS_ACTION_CLAUSE
         
         for exog_decl, exog_poss_head, exog_guard, exog_poss_body in sorted(exog_actions_list):
             code += f"exog_action({exog_decl}) :- {exog_guard}.\n"
             code += f"poss({exog_poss_head}, {exog_poss_body}).\n\n"
         
         # Add shut_down
-        code += "exog_action(shut_down).\n"
-        code += "poss(shut_down, and(neg(servers_stopped), neg(active_instances_check))).\n\n"
+        code += SHUTDOWN_EXOG_ACTION
         
         # Append the new dynamic running procedure
         code += self._generate_running_proc_definition()
@@ -258,18 +233,11 @@ id(X) :- between(1, 1, X).
                     elem_name = self._prologify(elem['name'])
                     decision_task_starts.append(f"{elem_name}(start, _)")
         
-        code = "\n% ABBREVIATIONS\n"
-        code += "proc(running(A1), and(done(A1), neg(done(A2)))) :-\n"
-        code += "  member(A1,\n    ["
-        code += ",\n      ".join(sorted(decision_task_starts))
-        code += "]), !,\n"
-        code += "  A1 =.. [F|[start|L]], append(L, [_], L2), A2 =.. [F|[end|L2]].\n\n"
-        
-        code += "% default running/1 when start and end actions have the same number of arguments\n"
-        code += "proc(running(A1), and(done(A1), neg(done(A2)))) :-\n"
-        code += "  A1 =.. [F|[start|L]], A2 =.. [F|[end|L]].\n"
-        
-        code += "proc(active_instances_check, some(id, some(pool, active(id, pool)))).\n\n"
+        code = ABBREVIATIONS_HEADER
+        decision_tasks_str = ",\n      ".join(sorted(decision_task_starts))
+        code += RUNNING_PROC_DECISION_TASKS.format(decision_tasks=decision_tasks_str)
+        code += RUNNING_PROC_DEFAULT
+        code += ACTIVE_INSTANCES_CHECK
         
         return code
 
@@ -277,19 +245,12 @@ id(X) :- between(1, 1, X).
         code = "\n"
         
         # Top-level controller
-        code += "/* TOP-LEVEL APPLICATION CONTROLLER\n\n"
-        code += "The top level BPM process involves two process in priority:\n\n"
-        code += "1. At the top level, run concurrently the two servers for the applicant and the company.\n"
-        code += "2. If the servers are \"stuck\", just wait for exogenous actions to unblock them.\n"
-        code += "*/\n"
-        code += "proc(control(bpmn_process), [prioritized_interrupts(\n"
-        code += "    [\n"
-        code += "      bpmn_process,\n"
-        code += "      interrupt(neg(servers_stopped), ?(wait_exog_action))\n"
-        code += "    ])]).\n\n"
+        code += TOP_LEVEL_CONTROLLER_COMMENT
+        code += CONTROL_BPMN_PROCESS
         
         participant_procs = [self._prologify(p['name']) for p in self.parser.participants.values()]
-        code += f"proc(bpmn_process, conc({', '.join([f'server_{p}' for p in participant_procs])})).\n\n\n"
+        servers = ', '.join([f'server_{p}' for p in participant_procs])
+        code += BPMN_PROCESS_CONC.format(servers=servers)
 
         for proc_id, process_data in self.parser.processes.items():
             p_name = self._prologify(self.parser.get_participant_by_process_id(proc_id)['name'])
@@ -303,15 +264,12 @@ id(X) :- between(1, 1, X).
                     event_subprocesses.append(elem)
 
             # Generate main procedure
-            code += f"/* SERVER FOR {p_name.upper()}\n\n"
-            code += f"This implements a server for the {p_name} side process.\n\n"
-            code += "It uses exogenous actions for the start event, for the withdrawal, and to shut down the servers/pools.\n"
-            code += "*/\n"
-            code += f"proc(server_{p_name}, iconc(pi(app, [acquire(app, {p_name}), handle_{p_name}(app)]))).\n\n"
+            code += SERVER_COMMENT.format(pool_upper=p_name.upper(), pool_name=p_name)
+            code += SERVER_PROC.format(pool_name=p_name)
             
             # Build main flow procedure
             main_flow_proc = self._build_proc_for_element(main_start_id, process_data)
-            code += f"proc({p_name}(ID),\n  {main_flow_proc}\n).\n\n"
+            code += POOL_PROC.format(pool_name=p_name, proc_body=main_flow_proc)
 
             # Build handle procedure with event subprocess support
             if not event_subprocesses:
@@ -322,17 +280,45 @@ id(X) :- between(1, 1, X).
                 trigger_event_name = self._prologify(sub_proc_start_event['name'])
                 sub_proc_body = self._build_proc_for_element(sub_proc_start_event['id'], process_data)
                 
-                # Determine conditions based on pool
-                if p_name == 'applicant':
-                    gexec_cond = f"and(active(ID, {p_name}), neg(done({trigger_event_name}(ID))))"
-                    if_cond = f"and(active(ID, company), done({trigger_event_name}(ID)))"
-                else:  # company
-                    gexec_cond = f"and(active(ID, {p_name}), neg(done(withdrawal_sent(ID))))"
-                    if_cond = f"and(active(ID, {p_name}), done(withdrawal_sent(ID)))"
+                # Determine the event to use in conditions
+                # Check if the start event is a message catch (target of a message flow)
+                start_event_id = sub_proc_start_event['id']
+                is_message_catch = any(v == start_event_id for v in self.parser.message_flows.values())
                 
-                handle_proc_body = f"[ gexec({gexec_cond}, {p_name}(ID)),\n    if({if_cond},\n          {sub_proc_body},\n          []  % empty else\n      )\n  ]"
+                if is_message_catch:
+                    # For message catch start events, find the corresponding throw event
+                    source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == start_event_id), None)
+                    if source_msg_id:
+                        source_elem = self._find_element_by_id(source_msg_id)
+                        if source_elem:
+                            condition_event_name = self._prologify(source_elem['name'])
+                        else:
+                            condition_event_name = trigger_event_name
+                    else:
+                        condition_event_name = trigger_event_name
+                    # Message catch: check same pool in if condition
+                    if_pool = p_name
+                else:
+                    # For non-message start events (error, escalation, etc.), use the trigger itself
+                    condition_event_name = trigger_event_name
+                    # Non-message: find the target pool of the message sent within subprocess
+                    # Look for message flows originating from this subprocess
+                    target_pool = None
+                    for contained_id in sub_proc.get('contained_elements', []):
+                        if contained_id in self.parser.message_flows:
+                            target_elem_id = self.parser.message_flows[contained_id]
+                            target_pool_obj = self._find_pool_for_element(target_elem_id)
+                            if target_pool_obj:
+                                target_pool = self._prologify(target_pool_obj['name'])
+                                break
+                    if_pool = target_pool if target_pool else p_name
+                
+                gexec_cond = f"and(active(ID, {p_name}), neg(done({condition_event_name}(ID))))"
+                if_cond = f"and(active(ID, {if_pool}), done({condition_event_name}(ID)))"
+                
+                handle_proc_body = f"[ gexec({gexec_cond}, {p_name}(ID)),\n    if({if_cond},\n          {sub_proc_body},\n          []\n      )\n  ]"
             
-            code += f"proc(handle_{p_name}(ID),\n  {handle_proc_body}\n).\n\n\n"
+            code += HANDLE_PROC.format(pool_name=p_name, proc_body=handle_proc_body)
         
         return code
 
@@ -601,9 +587,7 @@ id(X) :- between(1, 1, X).
         return None
 
     def _generate_initial_state(self, fluents):
-        code = "\n% Initial Situation\n"
-        code += "initially(pool(_P), true).\n\n"
-        return code
+        return INITIAL_SITUATION
 
     def _find_element_by_id(self, elem_id):
         for proc in self.parser.processes.values():
@@ -629,6 +613,30 @@ id(X) :- between(1, 1, X).
             if elem and 'startEvent' in elem['type']: return elem
         return None
     
+    def _find_subprocess_completion_marker(self, subprocess_id, process_data):
+        """
+        Find the completion marker for an event subprocess.
+        This could be a message throw event or the final event in the subprocess.
+        """
+        sub_proc = process_data['elements'].get(subprocess_id)
+        if not sub_proc or 'contained_elements' not in sub_proc: return None
+        
+        # First, look for intermediate throw events (like "withdrawal sent")
+        for contained_id in sub_proc['contained_elements']:
+            elem = process_data['elements'].get(contained_id)
+            if elem and 'intermediateThrowEvent' in elem['type'] and elem.get('name'):
+                # Check if this throw event is part of a message flow
+                if contained_id in self.parser.message_flows:
+                    return elem
+        
+        # If no throw event found, look for the end event
+        for contained_id in sub_proc['contained_elements']:
+            elem = process_data['elements'].get(contained_id)
+            if elem and 'endEvent' in elem['type'] and elem.get('name'):
+                return elem
+        
+        return None
+    
     def _is_decision_task(self, task_id, process_data):
         task = process_data['elements'].get(task_id)
         if not task or not task['outgoing']: return False
@@ -637,26 +645,4 @@ id(X) :- between(1, 1, X).
         return next_elem and 'exclusiveGateway' in next_elem['type'] and next_elem['name']
 
     def _generate_footer(self):
-        return """
-prim_action(end_bpmn).
-poss(end_bpmn, true).
-
-proc(exog_actions,
-  if(done(end_bpmn), [], [exog_action, exog_actions])).
-
-% simulate process BP under exogenous events
-proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
-proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%  INFORMATION FOR THE EXECUTOR
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% Translations of domain actions to real actions (one-to-one)
-actionNum(X, X).
-
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% EOF
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-"""
+        return FOOTER

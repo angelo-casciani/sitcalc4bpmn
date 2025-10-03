@@ -129,7 +129,7 @@ prim_action(letter_of_refusal_sent(_ID)).
 poss(letter_of_refusal_sent(ID), and(done(produce_letter_of_refusal(end,  ID)), letter_of_refusal(ID))).
 
 prim_action(application_finalised(_ID)).
-poss(application_finalised(ID), or(done(letter_of_refusal_sent(ID)), done(communicate_recruitment(end,  ID)))).
+poss(application_finalised(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(letter_of_refusal_sent(ID)), done(communicate_recruitment(end,  ID))))).
 
 prim_action(confirm_withdrawal(start, _ID)).
 poss(confirm_withdrawal(start, ID), done(withdrawal_by_applicant(ID))).
@@ -144,7 +144,7 @@ prim_action(process_withdrawal(start, _ID)).
 poss(process_withdrawal(start, ID), done(withdrawal_sent(ID))).
 
 prim_action(withdrawal_handled(_ID)).
-poss(withdrawal_handled(ID), and(done(withdrawal_completed(ID)), done(process_withdrawal(end,  ID)))).
+poss(withdrawal_handled(ID), done(process_withdrawal(end,  ID))).
 
 prim_action(acquire(_ID, _POOL)).
 poss(acquire(ID, POOL), and(id(ID), and(waiting(ID, POOL), pool(POOL)))).

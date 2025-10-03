@@ -15,6 +15,17 @@ class PrologTranslator:
             s = s.replace('send_', '', 1) + '_sent'
         
         return s
+    
+    def _build_nested_and(self, conditions):
+        """Build nested binary and/2 predicates from a list of conditions."""
+        if not conditions:
+            return "true"
+        if len(conditions) == 1:
+            return conditions[0]
+        if len(conditions) == 2:
+            return f"and({conditions[0]}, {conditions[1]})"
+        # For more than 2, nest recursively: and(C1, and(C2, and(C3, ...)))
+        return f"and({conditions[0]}, {self._build_nested_and(conditions[1:])})"
 
     def translate(self):
         code = self._generate_header()
@@ -150,11 +161,11 @@ id(X) :- between(1, 1, X).
                         # If we have only fluent conditions (no done), use them as-is
                         if not has_done_conditions:
                             if len(all_conds) > 1:
-                                final_conditions.append("and(" + ", ".join(all_conds) + ")")
+                                final_conditions.append(self._build_nested_and(all_conds))
                             elif all_conds:
                                 final_conditions.append(all_conds[0])
                         elif len(all_conds) > 1: 
-                            final_conditions.append("and(" + ", ".join(all_conds) + ")")
+                            final_conditions.append(self._build_nested_and(all_conds))
                         elif all_conds: 
                             final_conditions.append(all_conds[0])
                     
@@ -518,7 +529,7 @@ id(X) :- between(1, 1, X).
                     # Don't add as predecessor, don't continue backward
                     pass
                 # Other gateways - skip and continue searching backward
-                elif 'gateway' in source_elem['type']: 
+                elif 'gateway' in source_elem['type'].lower(): 
                     q.append(source_id)
                 # Skip catch events - replace with their throw event
                 elif 'intermediateCatchEvent' in source_elem['type']:

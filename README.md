@@ -8,10 +8,21 @@ This project provides a complete pipeline from BPMN models to formal reasoning:
 - **Translation**: Convert BPMN XML files to IndiGolog/Prolog representations
 - **Reasoning**: Perform various reasoning tasks (projection, legality checking, conformance, property verification, execution) over the translated models
 - **Execution**: Run BPMN processes with exogenous event handling
+- **Web UI**: User-friendly Gradio interface for translation and reasoning
 
 ## Features
 
-### Translation (`src/main.py`)
+### Web-Based User Interface (`src/ui.py`)
+**NEW!** A simple and intuitive web interface for:
+- **Upload & Translate**: Drag-and-drop BPMN files and translate them to IndiGolog
+- **View Translation**: Display generated Prolog code with syntax highlighting
+- **Load Models**: Access previously translated models
+- **Reasoning Tasks**: Execute all reasoning tasks with dynamic parameter inputs
+  - Projection, Legality, Execution, Conformance, Property Verification
+  - Clear parameter descriptions and validation
+  - Real-time output display
+
+### Translation (`src/bpmn_translator.py`)
 Parse BPMN XML files and generate IndiGolog Prolog code with:
 - Fluent definitions (state variables)
 - Action definitions and preconditions
@@ -40,15 +51,56 @@ Six powerful reasoning capabilities:
 - SWI-Prolog 8.x+ (`sudo apt-get install swi-prolog` on Ubuntu/Debian)
 - IndiGolog framework (included as submodule)
 
-### 1. Translate a BPMN Model
+### Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd sitcalc4bpmn
+```
+
+2. Install Python dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+## Using the Web UI (Recommended)
+
+The easiest way to use the tool is through the web interface:
 
 ```bash
-python src/main.py <model_name>
+python src/ui.py
+```
+
+This will start a local web server (default: http://127.0.0.1:7860) and open the interface in your browser.
+
+### Web UI Features:
+
+1. **Translation Tab**: Upload BPMN files and translate them to IndiGolog
+   - Drag and drop .bpmn or .xml files
+   - Specify a model name
+   - View the generated Prolog code with syntax highlighting
+
+2. **Load Existing Model Tab**: Access previously translated models
+   - Select from a dropdown of available models
+   - View the translated code
+
+3. **Reasoning Tasks Tab**: Execute reasoning over your models
+   - Select a reasoning task (projection, legality, etc.)
+   - Input parameters dynamically based on the selected task
+   - View results in real-time
+
+## Command-Line Usage
+
+### 1. Translate a BPMN Model (CLI)
+
+```bash
+python src/bpmn_translator.py <model_name>
 ```
 
 Example:
 ```bash
-python src/main.py job_application
+python src/bpmn_translator.py job_application
 ```
 
 This reads `models/job_application.bpmn` and generates:

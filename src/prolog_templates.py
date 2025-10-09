@@ -63,16 +63,24 @@ SERVER_PROC = "proc(server_{pool_name}, iconc(pi(id, [acquire(id, {pool_name}), 
 POOL_PROC = "proc({pool_name}(ID),\n  {proc_body}\n).\n\n"
 HANDLE_PROC = "proc(handle_{pool_name}(ID),\n  {proc_body}\n).\n\n\n"
 FOOTER = """
-
 prim_action(end_bpmn).
 poss(end_bpmn, true).
 
 proc(exog_actions,
   if(done(end_bpmn), [], [exog_action, exog_actions])).
 
-% simulate process BP under exogenous events
-proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
+
+proc(control(property_verification), search(property_verification)).
+proc(property_verification,
+  [
+    conc([bpmn_process, end_bpmn], exog_actions),
+    ?(some([id],
+          true  % REPLACE WITH PROPERTY
+        )
+      )
+  ]
+).
 
 % Translations of domain actions to real actions (one-to-one)
 actionNum(X, X).

@@ -28,6 +28,53 @@ class PrologTranslator:
         # For more than 2, nest recursively: and(C1, and(C2, and(C3, ...)))
         return f"and({conditions[0]}, {self._build_nested_and(conditions[1:])})"
 
+    def _interleave_fluents_and_causes(self, fluents, causes):
+        """
+        Organize fluents and their causal laws together, matching the structure of job.pl.
+        Returns a string with fluents immediately followed by their causes.
+        """
+        # Extract fluent names from causes to group them
+        fluent_to_causes = {}
+        
+        for cause in causes:
+            # Parse cause to extract fluent name
+            # Format: causes_true(action(...), fluent_name(ID), condition).
+            # or: causes_false(action(...), fluent_name(ID), condition).
+            # or: causes_true(action, fluent_name, condition). (for simple fluents like servers_stopped)
+            import re
+            # Match the fluent name (second argument), handling both fluent(ID) and simple fluent forms
+            match = re.search(r'causes_(?:true|false)\(.+?,\s*([a-z_]+)[\(,]', cause)
+            if match:
+                fluent_name = match.group(1)
+                if fluent_name not in fluent_to_causes:
+                    fluent_to_causes[fluent_name] = []
+                fluent_to_causes[fluent_name].append(cause)
+        
+        # Generate output with fluents followed by their causes
+        result = []
+        
+        # Separate simple fluents from those with :- rules
+        simple_fluents = [f for f in fluents if ':-' not in f]
+        rule_fluents = [f for f in fluents if ':-' in f]
+        
+        # Process each fluent in a consistent order
+        for fluent in sorted(simple_fluents):
+            # Extract fluent name (e.g., "active(_ID, _POOL)" -> "active")
+            fluent_name = fluent.split('(')[0] if '(' in fluent else fluent
+            
+            # Add the fluent declaration
+            result.append(f"rel_fluent({fluent}).")
+            
+            # Add its causal laws immediately after
+            if fluent_name in fluent_to_causes:
+                for cause in sorted(fluent_to_causes[fluent_name]):
+                    result.append(cause)
+        
+        # Add rule-based fluents (like pool(P)) at the end
+        result.extend(rule_fluents)
+        
+        return "\n".join(result)
+
     def translate(self):
         code = self._generate_header()
         code += self._generate_fluents_and_causes()
@@ -41,27 +88,51 @@ class PrologTranslator:
 
     def _generate_fluents_and_causes(self):
         fluents = set(STANDARD_FLUENTS)
-        causes = list(STANDARD_CAUSES)
+        causes = list(STANDARD_CAUSES)  # Already includes acquire and shut_down causes
         
         pool_names = [self._prologify(p['name']) for p in self.parser.participants.values()]
-        fluents.add(f"pool(P) :- member(P, [{', '.join(pool_names)}]).")
+        fluents.add(f"rel_fluent(pool(P)) :- member(P, [{', '.join(pool_names)}]).")
         
         fluents.add('waiting(_ID, _POOL)')
-        causes.extend([
-            "causes_true(acquire(ID, POOL), active(ID, POOL), true).",
-            "causes_false(acquire(ID, POOL), waiting(ID, POOL), true).",
-            "causes_true(shut_down, servers_stopped, true)."
-        ])
+        # Note: acquire and shut_down causes are already in STANDARD_CAUSES, don't duplicate!
 
-        # Handle message flows - throw events cause waiting in target pool
+        # Handle message flows - but ONLY for those that target message catch START events
+        # These are critical for initiating pools and must cause waiting()
+        # Other message flows (mid-process) should NOT cause waiting as they create excessive search paths
         for source_id, target_id in self.parser.message_flows.items():
             source_elem = self._find_element_by_id(source_id)
-            if source_elem:
-                target_pool = self._find_pool_for_element(target_id)
-                if target_pool:
-                    source_action = self._prologify(source_elem['name'])
-                    target_pool_name = self._prologify(target_pool['name'])
-                    causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
+            target_elem = self._find_element_by_id(target_id)
+            if source_elem and target_elem:
+                # Only generate waiting cause if target is a START event (message catch start)
+                if 'startEvent' in target_elem.get('type', ''):
+                    target_pool = self._find_pool_for_element(target_id)
+                    if target_pool:
+                        source_action = self._prologify(source_elem['name'])
+                        target_pool_name = self._prologify(target_pool['name'])
+                        causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
+
+                # Handle message flows - but ONLY for those that target START events at the POOL level (not in subprocesses)
+        # When a throw event sends to a message catch START event, it initiates that pool
+        # These must cause waiting(). Other message flows (to intermediate catch events or subprocess starts) 
+        # should NOT cause waiting as they create excessive search paths.
+        for source_id, target_id in self.parser.message_flows.items():
+            source_elem = self._find_element_by_id(source_id)
+            target_elem = self._find_element_by_id(target_id)
+            if source_elem and target_elem:
+                # Only generate waiting cause if target is a START event AND not in a subprocess
+                if 'startEvent' in target_elem.get('type', ''):
+                    # Find which process contains this target element
+                    target_process = None
+                    for proc in self.parser.processes.values():
+                        if target_id in proc['elements']:
+                            target_process = proc
+                            break
+                    if target_process and not self._is_in_subprocess(target_id, target_process):
+                        target_pool = self._find_pool_for_element(target_id)
+                        if target_pool:
+                            source_action = self._prologify(source_elem['name'])
+                            target_pool_name = self._prologify(target_pool['name'])
+                            causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
 
         # Handle start and end events for each pool
         for proc_id, process in self.parser.processes.items():
@@ -91,10 +162,18 @@ class PrologTranslator:
 
         self._add_data_and_gateway_fluents(fluents, causes)
         
-        fluent_code = FLUENTS_HEADER + "\n".join([f"rel_fluent({f})." for f in sorted(list(fluents)) if ':-' not in f]) + "\n" + "\n".join([f for f in fluents if ':-' in f]) + "\n\n"
-        cause_code = CAUSAL_LAWS_HEADER + "\n".join(sorted(list(set(causes)))) + "\n"
+        # Remove duplicates from causes list (preserving order)
+        seen = set()
+        unique_causes = []
+        for cause in causes:
+            if cause not in seen:
+                seen.add(cause)
+                unique_causes.append(cause)
+        
+        # Interleave fluents with their causal laws (matching job.pl structure)
+        interleaved_code = "\n% Domain-dependent Relational Fluents\n" + self._interleave_fluents_and_causes(fluents, unique_causes) + "\n\n"
         init_code = self._generate_initial_state(fluents)
-        return fluent_code + cause_code + init_code
+        return interleaved_code + init_code
 
     def _add_data_and_gateway_fluents(self, fluents, causes):
         for proc in self.parser.processes.values():
@@ -134,7 +213,12 @@ class PrologTranslator:
                 
                 final_conditions = []
                 for path in path_conditions:
-                    all_conds = sorted(list(set(path + data_conditions)))
+                    # Sort conditions with done() first for better search performance
+                    # done() checks are typically more selective and should be evaluated first
+                    all_conds_set = list(set(path + data_conditions))
+                    done_conds = [c for c in all_conds_set if c.startswith('done(')]
+                    other_conds = [c for c in all_conds_set if not c.startswith('done(')]
+                    all_conds = sorted(done_conds) + sorted(other_conds)
                     
                     # Check if this path contains ONLY fluent conditions (no done() calls)
                     # If so, it means we're immediately after an exclusive gateway controlled by a fluent
@@ -153,7 +237,19 @@ class PrologTranslator:
                         final_conditions.append(all_conds[0])
                 
                 if len(final_conditions) > 1: 
-                    poss_cond = "or(" + ", ".join(sorted(list(set(final_conditions)))) + ")"
+                    # Check if ALL conditions are negations: or(neg(...), neg(...), ...)
+                    # If so, apply De Morgan's law: or(neg(A), neg(B)) = neg(and(A, B))
+                    # This dramatically improves search performance by reducing choice points
+                    unique_conditions_list = list(set(final_conditions))
+                    if all(c.startswith('neg(') and c.endswith(')') for c in unique_conditions_list):
+                        # Extract the inner conditions from neg(...), preserving order (don't sort)
+                        inner_conds = [c[4:-1] for c in unique_conditions_list]  # Remove "neg(" prefix and ")" suffix
+                        # Sort the inner conditions in a more logical order: fluents before IDs
+                        # This matches the pattern in job.pl
+                        inner_conds_sorted = sorted(inner_conds, key=lambda x: (not x.endswith('(ID)'), x))
+                        poss_cond = "neg(" + self._build_nested_and(inner_conds_sorted) + ")"
+                    else:
+                        poss_cond = "or(" + ", ".join(sorted(unique_conditions_list)) + ")"
                 elif final_conditions: 
                     poss_cond = final_conditions[0]
                 else: 
@@ -163,10 +259,18 @@ class PrologTranslator:
                 if 'task' in elem['type']:
                     action_defs.append(f"prim_action({elem_name}(start, _ID)).\nposs({elem_name}(start, ID), {poss_cond}).")
                     # Task end actions are exogenous
-                    if self._is_decision_task(elem_id, process):
-                        exog_actions_list.append((f"{elem_name}(end, ID, RESULT)", f"{elem_name}(end, ID, _RESULT)", "id(ID), member(RESULT, [true, false])", f"running({elem_name}(start, ID))"))
+                    # Add data input fluents to the precondition for end actions
+                    end_poss_parts = [f"running({elem_name}(start, ID))"]
+                    end_poss_parts.extend(data_conditions)
+                    if len(end_poss_parts) > 1:
+                        end_poss = self._build_nested_and(end_poss_parts)
                     else:
-                        exog_actions_list.append((f"{elem_name}(end, ID)", f"{elem_name}(end, ID)", "id(ID)", f"running({elem_name}(start, ID))"))
+                        end_poss = end_poss_parts[0]
+                    
+                    if self._is_decision_task(elem_id, process):
+                        exog_actions_list.append((f"{elem_name}(end, ID, RESULT)", f"{elem_name}(end, ID, _RESULT)", "id(ID), member(RESULT, [true, false])", end_poss))
+                    else:
+                        exog_actions_list.append((f"{elem_name}(end, ID)", f"{elem_name}(end, ID)", "id(ID)", end_poss))
                 
                 elif 'intermediateThrowEvent' in elem['type']:
                     # Throw events are primitive actions
@@ -186,8 +290,20 @@ class PrologTranslator:
                         # Terminate end events in event subprocesses are completion markers
                         action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                     elif not is_in_subprocess:
-                        # Regular end events (not in subprocess) are primitive actions
-                        action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
+                        # Regular end events (not in subprocess) need exception handling guards
+                        # Find the exception trigger event (start event of event subprocess) for this pool
+                        exception_trigger = self._find_exception_trigger_event(proc_id)
+                        if exception_trigger:
+                            exception_trigger_name = self._prologify(exception_trigger['name'])
+                            # Add negation of exception trigger to precondition
+                            # This prevents the normal end from firing if the exception has occurred
+                            if poss_cond == "true":
+                                enhanced_poss_cond = f"neg(done({exception_trigger_name}(ID)))"
+                            else:
+                                enhanced_poss_cond = f"and(neg(done({exception_trigger_name}(ID))), {poss_cond})"
+                            action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {enhanced_poss_cond}).")
+                        else:
+                            action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                 
                 elif 'startEvent' in elem['type']:
                     # Check if this start event is a message catch (target of a message flow)
@@ -197,8 +313,10 @@ class PrologTranslator:
                         # Message catch start events are NOT actions - they wait for the throw event
                         pass
                     elif self._is_in_subprocess(elem_id, process):
-                        # Event subprocess start events are exogenous
-                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
+                        # Event subprocess start events are exogenous (exception triggers)
+                        # Generate complex precondition that ensures exception can only fire when pools are active
+                        precondition = self._generate_exception_trigger_precondition(elem_id, elem_name, proc_id, process)
+                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", precondition))
                     else:
                         # Regular main process start events are exogenous
                         exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
@@ -234,8 +352,13 @@ class PrologTranslator:
                     decision_task_starts.append(f"{elem_name}(start, _)")
         
         code = ABBREVIATIONS_HEADER
-        decision_tasks_str = ",\n      ".join(sorted(decision_task_starts))
-        code += RUNNING_PROC_DECISION_TASKS.format(decision_tasks=decision_tasks_str)
+        
+        # Add special case for decision tasks if any exist
+        if decision_task_starts:
+            decision_tasks_str = ",\n      ".join(sorted(decision_task_starts))
+            code += RUNNING_PROC_DECISION_TASKS.format(decision_tasks=decision_tasks_str)
+        
+        # Add default running/1 definition
         code += RUNNING_PROC_DEFAULT
         code += ACTIVE_INSTANCES_CHECK
         
@@ -278,7 +401,14 @@ class PrologTranslator:
                 sub_proc = event_subprocesses[0]
                 sub_proc_start_event = self._find_subprocess_start_event(sub_proc['id'], process_data)
                 trigger_event_name = self._prologify(sub_proc_start_event['name'])
-                sub_proc_body = self._build_proc_for_element(sub_proc_start_event['id'], process_data)
+                
+                # For the subprocess body, skip the start event and go directly to what follows it
+                # The start event condition is already checked in the if(...) guard
+                if sub_proc_start_event.get('outgoing'):
+                    next_elem_id = process_data['sequence_flows'][sub_proc_start_event['outgoing'][0]]['target']
+                    sub_proc_body = self._build_proc_for_element(next_elem_id, process_data)
+                else:
+                    sub_proc_body = "[]"
                 
                 # Determine the event to use in conditions
                 # Check if the start event is a message catch (target of a message flow)
@@ -330,8 +460,37 @@ class PrologTranslator:
         elem_name = self._prologify(elem['name'])
         
         if 'startEvent' in elem['type']:
-            # Start events: skip and go to next element
-            # (start events are handled by the server/acquire mechanism, not in the procedure body)
+            # Check if this is a message catch start event
+            is_message_catch = any(v == elem_id for v in self.parser.message_flows.values())
+            
+            if is_message_catch:
+                # Message catch start events need to wait for the corresponding throw event
+                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == elem_id), None)
+                if source_msg_id:
+                    source_elem = self._find_element_by_id(source_msg_id)
+                    if source_elem:
+                        source_name = self._prologify(source_elem['name'])
+                        wait_proc = f"?(done({source_name}(ID)))"
+                        # Continue with the rest of the process
+                        outgoing_flows = elem.get('outgoing', [])
+                        if outgoing_flows:
+                            next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                            next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
+                            if next_proc and next_proc != "[]":
+                                # If next_proc is already a sequence (starts with [), flatten it
+                                if next_proc.startswith('[') and next_proc.endswith(']'):
+                                    # Extract the inner elements and add wait_proc to them
+                                    inner = next_proc[1:-1]
+                                    return f"[{wait_proc}, {inner}]"
+                                else:
+                                    # Single element, create a sequence
+                                    return f"[{wait_proc}, {next_proc}]"
+                            else:
+                                return wait_proc
+                        return wait_proc
+            
+            # Non-message-catch start events: skip and go to next element
+            # (these are handled by the server/acquire mechanism, not in the procedure body)
             outgoing_flows = elem.get('outgoing', [])
             if outgoing_flows:
                 next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
@@ -470,34 +629,87 @@ class PrologTranslator:
 
             predecessors = self._find_true_predecessors(current_id, process_data)
             if predecessors:
-                pred_conds = []
-                for p in predecessors:
-                    if 'task' in p['type']:
-                        pred_conds.append(f"done({self._prologify(p['name'])}(end, ID))")
-                    elif 'intermediateThrowEvent' in p['type']:
-                        pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
-                    elif 'intermediateCatchEvent' in p['type']:
-                        # Catch events wait for their corresponding throw event
-                        source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
-                        if source_msg_id:
-                            source_elem = self._find_element_by_id(source_msg_id)
-                            if source_elem:
-                                pred_conds.append(f"done({self._prologify(source_elem['name'])}(ID))")
-                    elif 'startEvent' in p['type']:
-                        # Check if it's a message catch start event
-                        is_message_catch = any(v == p['id'] for v in self.parser.message_flows.values())
-                        if is_message_catch:
-                            # Find the throw event
+                # Check if these predecessors come from an XOR merge (convergence point)
+                # If we have multiple predecessors, check if they come from parallel split or XOR
+                # Look at the immediate predecessor in the sequence flow
+                immediate_sources = []
+                for inc_id in elem.get('incoming', []):
+                    source_id = process_data['sequence_flows'][inc_id]['source']
+                    immediate_sources.append(source_id)
+                
+                # If multiple incoming flows from different immediate sources, check if it's a parallel join
+                is_parallel_join = False
+                if len(set(immediate_sources)) == 1:
+                    # All flows come from same gateway - likely parallel join
+                    gateway = process_data['elements'].get(immediate_sources[0])
+                    if gateway and 'parallelGateway' in gateway['type']:
+                        is_parallel_join = True
+                
+                # If we have multiple predecessors and it's NOT a parallel join, it's an XOR merge
+                is_xor_merge = len(predecessors) > 1 and not is_parallel_join
+                
+                if is_xor_merge:
+                    # Create SEPARATE paths for each predecessor (mutually exclusive branches)
+                    for p in predecessors:
+                        pred_cond = None
+                        if 'task' in p['type']:
+                            pred_cond = f"done({self._prologify(p['name'])}(end, ID))"
+                        elif 'intermediateThrowEvent' in p['type']:
+                            pred_cond = f"done({self._prologify(p['name'])}(ID))"
+                        elif 'intermediateCatchEvent' in p['type']:
+                            # Catch events wait for their corresponding throw event
+                            source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
+                            if source_msg_id:
+                                source_elem = self._find_element_by_id(source_msg_id)
+                                if source_elem:
+                                    pred_cond = f"done({self._prologify(source_elem['name'])}(ID))"
+                        elif 'startEvent' in p['type']:
+                            # Check if it's a message catch start event
+                            is_message_catch = any(v == p['id'] for v in self.parser.message_flows.values())
+                            if is_message_catch:
+                                # Find the throw event
+                                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
+                                if source_msg_id:
+                                    source_elem = self._find_element_by_id(source_msg_id)
+                                    if source_elem:
+                                        pred_cond = f"done({self._prologify(source_elem['name'])}(ID))"
+                            else:
+                                pred_cond = f"done({self._prologify(p['name'])}(ID))"
+                        else:
+                            pred_cond = f"done({self._prologify(p['name'])}(ID))"
+                        
+                        if pred_cond:
+                            paths.append(current_path_conditions + [pred_cond])
+                else:
+                    # Parallel paths - combine all predecessors into ONE path with AND
+                    pred_conds = []
+                    for p in predecessors:
+                        if 'task' in p['type']:
+                            pred_conds.append(f"done({self._prologify(p['name'])}(end, ID))")
+                        elif 'intermediateThrowEvent' in p['type']:
+                            pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
+                        elif 'intermediateCatchEvent' in p['type']:
+                            # Catch events wait for their corresponding throw event
                             source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
                             if source_msg_id:
                                 source_elem = self._find_element_by_id(source_msg_id)
                                 if source_elem:
                                     pred_conds.append(f"done({self._prologify(source_elem['name'])}(ID))")
+                        elif 'startEvent' in p['type']:
+                            # Check if it's a message catch start event
+                            is_message_catch = any(v == p['id'] for v in self.parser.message_flows.values())
+                            if is_message_catch:
+                                # Find the throw event
+                                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
+                                if source_msg_id:
+                                    source_elem = self._find_element_by_id(source_msg_id)
+                                    if source_elem:
+                                        pred_conds.append(f"done({self._prologify(source_elem['name'])}(ID))")
+                            else:
+                                pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
                         else:
                             pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
-                    else:
-                        pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
-                paths.append(current_path_conditions + pred_conds)
+                    paths.append(current_path_conditions + pred_conds)
                 continue
 
             if not elem.get('incoming'):
@@ -605,12 +817,159 @@ class PrologTranslator:
             if 'subProcess' in e['type'] and elem_id in e.get('contained_elements', []): return True
         return False
 
+    def _find_exception_completion_marker(self, proc_id):
+        """
+        Find the completion marker for the exception handler (event subprocess) in a process.
+        Returns the marker element (throw event or end event) that signals exception handling is complete.
+        """
+        process_data = self.parser.processes.get(proc_id)
+        if not process_data:
+            return None
+        
+        # Find event subprocesses in this process
+        for elem in process_data['elements'].values():
+            if elem.get('is_event_subprocess'):
+                # Found an event subprocess, find its completion marker
+                return self._find_subprocess_completion_marker(elem['id'], process_data)
+        
+        return None
+    
+    def _find_exception_trigger_event(self, proc_id):
+        """
+        Find the exception trigger event (start event of event subprocess) in a process.
+        This is the exogenous action that triggers the exception handler.
+        For message-based exceptions, traces back to the original trigger in the source pool.
+        Returns the start event element of the event subprocess.
+        """
+        process_data = self.parser.processes.get(proc_id)
+        if not process_data:
+            return None
+        
+        # Find event subprocesses in this process
+        for elem in process_data['elements'].values():
+            if elem.get('is_event_subprocess'):
+                # Found an event subprocess, find its start event (the trigger)
+                start_event = self._find_subprocess_start_event(elem['id'], process_data)
+                if not start_event:
+                    continue
+                
+                # Check if this is a message catch start event (receives a message)
+                is_message_catch = any(v == start_event['id'] for v in self.parser.message_flows.values())
+                
+                if is_message_catch:
+                    # This is a message catch - find the original exception trigger
+                    # Find the message flow where this event is the target
+                    for source_id, target_id in self.parser.message_flows.items():
+                        if target_id == start_event['id']:
+                            # Found the message flow, now find the SOURCE pool's exception trigger
+                            # The source is an intermediate throw, we need its pool's event subprocess start
+                            for other_proc_id, other_proc_data in self.parser.processes.items():
+                                if source_id in other_proc_data['elements']:
+                                    # Recursively find the exception trigger in the source pool
+                                    return self._find_exception_trigger_event(other_proc_id)
+                            break
+                else:
+                    # Direct exception trigger (not via message) - this is the root!
+                    return start_event
+        
+        return None
+    
+    def _generate_exception_trigger_precondition(self, start_event_id, event_name, proc_id, process_data):
+        """
+        Generate the precondition for an exception trigger (event subprocess start event).
+        
+        The precondition must ensure:
+        1. Valid ID and pool
+        2. None of the end events in participating pools have been reached
+        3. Not waiting (already acquired)
+        4. Active in all participating pools
+        5. Exception hasn't already been triggered
+        
+        Args:
+            start_event_id: ID of the exception start event
+            event_name: Prologified name of the event
+            proc_id: Process ID containing this exception
+            process_data: Process data dictionary
+            
+        Returns:
+            String with the Prolog precondition
+        """
+        conditions = []
+        
+        # Find all pools involved (where this exception can propagate via message flows)
+        involved_pools = set()
+        pool_obj = self._find_pool_for_element(start_event_id)
+        if pool_obj:
+            current_pool_name = self._prologify(pool_obj['name'])
+            involved_pools.add(current_pool_name)
+            
+            # Find other pools connected via message flows from this exception handler
+            subprocess_elem = self._find_parent_subprocess(start_event_id, process_data)
+            if subprocess_elem:
+                for contained_id in subprocess_elem.get('contained_elements', []):
+                    if contained_id in self.parser.message_flows:
+                        target_id = self.parser.message_flows[contained_id]
+                        target_pool_obj = self._find_pool_for_element(target_id)
+                        if target_pool_obj:
+                            target_pool_name = self._prologify(target_pool_obj['name'])
+                            involved_pools.add(target_pool_name)
+        
+        # Find all end events in all pools
+        end_event_names = []
+        for p_id, p_data in self.parser.processes.items():
+            for elem_id, elem in p_data['elements'].items():
+                if 'endEvent' in elem['type'] and not self._is_in_subprocess(elem_id, p_data):
+                    # Regular end event (not in exception handler)
+                    end_name = self._prologify(elem['name'])
+                    if end_name:
+                        end_event_names.append(f"neg(done({end_name}(ID)))")
+        
+        # Build the complex precondition
+        # Pattern: and(pool(POOL), and(neg(done(end1)), and(neg(done(end2)), and(...))))
+        
+        # Start with pool variable quantification
+        conditions.append("pool(POOL)")
+        
+        # Add negations of all end events
+        for end_condition in sorted(end_event_names):
+            conditions.append(end_condition)
+        
+        # Add: not waiting in any pool
+        conditions.append("neg(waiting(ID, POOL))")
+        
+        # Add: active in the variable pool (covers any pool where the exception can trigger)
+        # This means the instance must be active in at least one pool, not all pools
+        conditions.append("active(ID, POOL)")
+        
+        # Add: exception not already triggered
+        conditions.append(f"neg(done({event_name}(ID)))")
+        
+        # Build nested and() structure
+        if len(conditions) == 0:
+            return f"neg(done({event_name}(ID)))"
+        elif len(conditions) == 1:
+            return conditions[0]
+        else:
+            # Build right-nested and() structure: and(A, and(B, and(C, D)))
+            result = conditions[-1]
+            for i in range(len(conditions) - 2, -1, -1):
+                result = f"and({conditions[i]}, {result})"
+            return result
+
     def _find_subprocess_start_event(self, subprocess_id, process_data):
         sub_proc = process_data['elements'].get(subprocess_id)
         if not sub_proc or 'contained_elements' not in sub_proc: return None
         for contained_id in sub_proc['contained_elements']:
             elem = process_data['elements'].get(contained_id)
             if elem and 'startEvent' in elem['type']: return elem
+        return None
+    
+    def _find_parent_subprocess(self, elem_id, process_data):
+        """Find the subprocess that contains the given element."""
+        for elem in process_data['elements'].values():
+            if 'subProcess' in elem.get('type', '') or elem.get('is_event_subprocess'):
+                if 'contained_elements' in elem and elem_id in elem['contained_elements']:
+                    return elem
         return None
     
     def _find_subprocess_completion_marker(self, subprocess_id, process_data):

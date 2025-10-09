@@ -4,17 +4,19 @@ Reasoning Script for IndiGolog BPMN Translations
 
 This script provides an interface to perform reasoning tasks over IndiGolog translations
 of BPMN models. It supports various reasoning tasks such as projection, legality checks, 
-process execution, etc.
+process execution, property verification, etc.
 
 Usage:
     python reason.py <model_name> projection --fluent <fluent_name> --actions <action_list> --expected <true|false>
     python reason.py <model_name> legality --actions <action_list> [--proc-name <name>]
     python reason.py <model_name> execute [--controller <number>]
+    python reason.py <model_name> verify --property <property_expression> [--proc-name <name>]
 
 Examples:
     python reason.py job_application projection --fluent door_open --actions open,close --expected true
     python reason.py job_application legality --actions "job_needed(1),prepare_application(end,1)"
     python reason.py job_application execute --controller 1
+    python reason.py job_application verify --property "signed_contract(id), neg(done(application_finalised(id)))"
 """
 
 import argparse
@@ -22,6 +24,8 @@ import os
 import sys
 import subprocess
 import tempfile
+import signal
+import re
 
 
 def parse_action_list(action_string):
@@ -145,6 +149,132 @@ class IndiGologReasoner:
         
         return self._run_prolog_query(query)
     
+    def _kill_processes_on_port(self, port=8000):
+        """
+        Kill any processes using the specified port.
+        
+        Args:
+            port: Port number to check (default: 8000 for Environment Manager)
+        """
+        try:
+            # Use lsof to find processes using the port
+            result = subprocess.run(
+                ['lsof', '-ti', f':{port}'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid:
+                        try:
+                            print(f"Killing process {pid} using port {port}...")
+                            os.kill(int(pid), signal.SIGKILL)
+                        except Exception as e:
+                            print(f"Warning: Could not kill process {pid}: {e}")
+        except FileNotFoundError:
+            # lsof not available, try fuser
+            try:
+                subprocess.run(
+                    ['fuser', '-k', f'{port}/tcp'],
+                    capture_output=True,
+                    timeout=5
+                )
+            except:
+                pass
+        except Exception as e:
+            print(f"Warning: Error checking/killing processes on port {port}: {e}")
+    
+    def _run_swipl_with_cleanup(self, cmd, temp_file_path, timeout=300):
+        """
+        Run a SWI-Prolog command with proper process cleanup.
+        
+        Args:
+            cmd: Command list to execute
+            temp_file_path: Path to temporary file (for cleanup)
+            timeout: Timeout in seconds (default: 300/5 minutes)
+        
+        Returns:
+            tuple: (success: bool, output: str, returncode: int)
+        """
+        process = None
+        try:
+            # Clean up any lingering processes on port 8000 before starting
+            self._kill_processes_on_port(8000)
+            
+            # Run the command with Popen for better process management
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=self.indigolog_dir,
+                preexec_fn=os.setsid if hasattr(os, 'setsid') else None  # Create new process group on Unix
+            )
+            
+            # Wait for completion with timeout
+            try:
+                stdout, stderr = process.communicate(timeout=timeout)
+                full_output = stdout + stderr
+                returncode = process.returncode
+                return True, full_output, returncode
+            except subprocess.TimeoutExpired:
+                print(f"WARNING: Process timed out after {timeout} seconds. Terminating...")
+                # Kill the entire process group
+                if hasattr(os, 'killpg'):
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except:
+                        pass
+                else:
+                    process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except:
+                    process.kill()
+                return False, f"ERROR: Process timed out after {timeout} seconds", 1
+                
+        except Exception as e:
+            return False, f"ERROR: {str(e)}", 1
+            
+        finally:
+            # Ensure the process is terminated
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        # Process still running
+                        if hasattr(os, 'killpg'):
+                            try:
+                                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                            except:
+                                pass
+                        else:
+                            process.terminate()
+                        try:
+                            process.wait(timeout=3)
+                        except:
+                            try:
+                                process.kill()
+                            except:
+                                pass
+                except Exception as e:
+                    print(f"Warning: Error during process cleanup: {e}")
+            
+            # Kill any remaining processes on port 8000
+            self._kill_processes_on_port(8000)
+            
+            # Give the system a moment to release the port
+            import time
+            time.sleep(0.5)
+            
+            # Clean up temporary file
+            try:
+                os.unlink(temp_file_path)
+            except:
+                pass
+    
     def _run_prolog_query(self, query):
         """
         Run a Prolog query using swipl.
@@ -183,16 +313,11 @@ class IndiGologReasoner:
             print("Executing Prolog query...")
             print(f"Command: {' '.join(cmd)}\n")
             
-            # Run the command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.indigolog_dir  # Run from indigolog directory
-            )
+            # Run the command with cleanup
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=60)
             
-            # Combine stdout and stderr for full output
-            full_output = result.stdout + result.stderr
+            if not exec_success:
+                return False, full_output
             
             # Print the output
             print("Prolog Output:")
@@ -201,7 +326,7 @@ class IndiGologReasoner:
             print("-" * 70)
             
             # Check if the query succeeded based on exit code
-            success = result.returncode == 0
+            success = returncode == 0
             
             if success:
                 print("\n✓ Query evaluation: TRUE")
@@ -219,13 +344,6 @@ class IndiGologReasoner:
             error_msg = f"Error executing Prolog query: {e}"
             print(error_msg)
             return False, error_msg
-        
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file_path)
-            except:
-                pass
     
     def legality(self, proc_name, actions):
         """
@@ -304,16 +422,11 @@ class IndiGologReasoner:
             print(f"Prolog procedure: proc({proc_name}, {action_list_str}).")
             print(f"Command: {' '.join(cmd)}\n")
             
-            # Run the command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.indigolog_dir
-            )
+            # Run the command with cleanup
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
             
-            # Combine stdout and stderr for full output
-            full_output = result.stdout + result.stderr
+            if not exec_success:
+                return False, full_output
             
             # Print the output
             print("Prolog Output:")
@@ -330,10 +443,10 @@ class IndiGologReasoner:
             # Determine success: exit code 0, explicit success message, and no program failure
             if result_failure or program_failed:
                 success = False
-            elif result_success and result.returncode == 0 and not program_failed:
+            elif result_success and returncode == 0 and not program_failed:
                 success = True
             else:
-                success = result.returncode == 0
+                success = returncode == 0
             
             if success:
                 print("\n✓ Action sequence is EXECUTABLE (legal)")
@@ -351,13 +464,6 @@ class IndiGologReasoner:
             error_msg = f"Error executing legality check: {e}"
             print(error_msg)
             return False, error_msg
-        
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file_path)
-            except:
-                pass
     
     def execute_process(self, controller_number=1):
         """
@@ -442,6 +548,7 @@ class IndiGologReasoner:
             temp_file.write(f"    )\n")
             temp_file.write("    ).\n")
         
+        process = None
         try:
             # Build the swipl command
             cmd = [
@@ -456,16 +563,11 @@ class IndiGologReasoner:
             print(f"Executing BPMN process (controller {controller_number})...")
             print(f"Command: {' '.join(cmd)}\n")
             
-            # Run the command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.indigolog_dir
-            )
+            # Run the command with cleanup
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=300)
             
-            # Combine stdout and stderr for full output
-            full_output = result.stdout + result.stderr
+            if not exec_success:
+                return False, full_output
             
             # Print the output
             print("Prolog Output:")
@@ -520,7 +622,7 @@ class IndiGologReasoner:
                     print("="*70)
             
             # Check if the execution succeeded
-            success = result.returncode == 0
+            success = returncode == 0
             
             if success:
                 print("\n✓ Process execution COMPLETED successfully")
@@ -538,13 +640,6 @@ class IndiGologReasoner:
             error_msg = f"Error executing process: {e}"
             print(error_msg)
             return False, error_msg
-        
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file_path)
-            except:
-                pass
     
     def conformance_checking(self, history_actions):
         """
@@ -638,16 +733,11 @@ class IndiGologReasoner:
             print("Executing conformance check...")
             print(f"Command: {' '.join(cmd)}\n")
             
-            # Run the command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.indigolog_dir
-            )
+            # Run the command with cleanup
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
             
-            # Combine stdout and stderr for full output
-            full_output = result.stdout + result.stderr
+            if not exec_success:
+                return False, full_output
             
             # Print the output
             print("Prolog Output:")
@@ -659,14 +749,14 @@ class IndiGologReasoner:
             conformant = "RESULT: CONFORMANT" in full_output
             non_conformant = "RESULT: NON-CONFORMANT" in full_output
             
-            if conformant and result.returncode == 0:
+            if conformant and returncode == 0:
                 success = True
                 print("\n✓ History is CONFORMANT to process specification")
-            elif non_conformant or result.returncode != 0:
+            elif non_conformant or returncode != 0:
                 success = False
                 print("\n✗ History is NON-CONFORMANT to process specification")
             else:
-                success = result.returncode == 0
+                success = returncode == 0
             
             return success, full_output
             
@@ -679,27 +769,21 @@ class IndiGologReasoner:
             error_msg = f"Error executing conformance check: {e}"
             print(error_msg)
             return False, error_msg
-        
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_file_path)
-            except:
-                pass
     
-    def verify_property(self, proc_name='reasoning_task'):
+    def verify_property(self, property_expr, proc_name='property_verification'):
         """
         Perform property verification: execute a reasoning task procedure 
         that verifies a specific property of the BPMN process.
         
-        This task executes a user-defined procedure that should be defined
-        in the model's Prolog file as proc(control(reasoning_task), ...).
+        This task modifies the generated Prolog file to replace the placeholder
+        with the actual property to verify, then executes the verification.
         
-        The procedure typically uses search/1 to find a trace that violates
-        a property (e.g., finding a situation where a condition holds that shouldn't).
+        The procedure uses search/1 to find a trace that satisfies (or violates)
+        a property (e.g., finding a situation where a condition holds).
         
         Args:
-            proc_name: Name of the procedure to execute (default: reasoning_task)
+            property_expr: The property expression to verify (Prolog predicate)
+            proc_name: Name of the procedure to execute (default: property_verification)
         
         Returns:
             tuple: (success: bool, output: str)
@@ -709,89 +793,132 @@ class IndiGologReasoner:
         print(f"{'='*70}")
         print(f"Model:      {self.model_name}")
         print(f"Procedure:  {proc_name}")
+        print(f"Property:   {property_expr}")
         print(f"{'='*70}")
         print(f"Executing verification procedure...")
         print(f"{'='*70}\n")
         
-        return self._run_property_verification(proc_name)
+        return self._run_property_verification(property_expr, proc_name)
     
-    def _run_property_verification(self, proc_name):
+    def _run_property_verification(self, property_expr, proc_name):
         """
-        Run a property verification using do/3.
+        Run a property verification using time(do(property_verification, [], H)).
+        
+        This method:
+        1. Reads the generated model file
+        2. Replaces the placeholder with the actual property
+        3. Executes the verification using time(do(...))
         
         Args:
+            property_expr: The property expression to verify
             proc_name: The name of the procedure to execute
         
         Returns:
             tuple: (success: bool, output: str)
         """
-        # Create a temporary file with the property verification
+        # Read the model file and replace the property placeholder
+        model_file = os.path.join(self.model_dir, f'{self.model_name}.pl')
+        
+        if not os.path.exists(model_file):
+            error_msg = f"Model file not found: {model_file}"
+            print(error_msg)
+            return False, error_msg
+        
+        # Create a temporary modified version of the model file
+        with open(model_file, 'r') as f:
+            model_content = f.read()
+        
+        # Replace the placeholder with the actual property
+        # Find the pattern: "true  % REPLACE WITH PROPERTY" and replace it
+        placeholder_pattern = r'true\s*% REPLACE WITH PROPERTY'
+        replacement = property_expr
+        
+        modified_content = re.sub(placeholder_pattern, replacement, model_content, flags=re.MULTILINE)
+        
+        # Check if replacement was successful
+        if modified_content == model_content:
+            error_msg = "Could not find property placeholder in model file"
+            print(error_msg)
+            return False, error_msg
+        
+        # Write modified content to a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_model_file:
+            temp_model_file_path = temp_model_file.name
+            temp_model_file.write(modified_content)
+        
+        # Create a temporary file with the property verification query
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_file:
             temp_file_path = temp_file.name
-            # Initialize evaluator and run the property verification
+            # Run the property verification using time(do(...))
             temp_file.write(":- initialization(verify_property).\n\n")
             temp_file.write("verify_property :-\n")
-            temp_file.write("    writeln('Initializing evaluator...'),\n")
             temp_file.write("    initialize(evaluator),\n")
             temp_file.write("    writeln('Executing property verification...'),\n")
             temp_file.write("    writeln(''),\n")
-            temp_file.write(f"    format('Calling: do(~w, [], H)~n~n', [{proc_name}]),\n")
-            temp_file.write("    statistics(cputime, T0),\n")
-            temp_file.write("    statistics(inferences, I0),\n")
+            temp_file.write(f"    format('Calling: time(do(~w, [], H))~n~n', [{proc_name}]),\n")
             temp_file.write("    (\n")
-            temp_file.write(f"        do({proc_name}, [], H) ->\n")
+            temp_file.write(f"        time(do({proc_name}, [], H)) ->\n")
             temp_file.write("        (\n")
-            temp_file.write("            statistics(cputime, T1),\n")
-            temp_file.write("            statistics(inferences, I1),\n")
-            temp_file.write("            T is T1 - T0,\n")
-            temp_file.write("            I is I1 - I0,\n")
             temp_file.write("            writeln(''),\n")
             temp_file.write("            length(H, Len),\n")
             temp_file.write("            format('Result history (~w actions): ~w~n', [Len, H]),\n")
             temp_file.write("            writeln(''),\n")
-            temp_file.write("            format('~D inferences, ~3f CPU in ~3f seconds~n', [I, T, T]),\n")
-            temp_file.write("            writeln(''),\n")
-            temp_file.write("            writeln('RESULT: SUCCESS - Property verification completed.'),\n")
+            temp_file.write("            writeln('RESULT: SUCCESS - Property can be satisfied (trace found).'),\n")
             temp_file.write("            halt(0)\n")
             temp_file.write("        )\n")
             temp_file.write("    ;\n")
             temp_file.write("        (\n")
-            temp_file.write("            statistics(cputime, T1),\n")
-            temp_file.write("            statistics(inferences, I1),\n")
-            temp_file.write("            T is T1 - T0,\n")
-            temp_file.write("            I is I1 - I0,\n")
             temp_file.write("            writeln(''),\n")
-            temp_file.write("            format('~D inferences, ~3f CPU in ~3f seconds~n', [I, T, T]),\n")
-            temp_file.write("            writeln(''),\n")
-            temp_file.write("            writeln('RESULT: FAILURE - Property verification failed.'),\n")
+            temp_file.write("            writeln('RESULT: FAILURE - Property cannot be satisfied (no trace found).'),\n")
             temp_file.write("            halt(1)\n")
             temp_file.write("        )\n")
             temp_file.write("    ).\n")
         
         try:
-            # Build the swipl command
+            # Build the swipl command using the modified model file
+            # We need to create a custom main.pl that loads our modified model instead
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_main_file:
+                temp_main_file_path = temp_main_file.name
+                # Create a main file that loads everything except the original model
+                temp_main_file.write(":- dir(indigolog, F), consult(F).\n")
+                temp_main_file.write(":- dir(eval_bat, F), consult(F).\n\n")
+                temp_main_file.write(f":- consult('{temp_model_file_path}').\n\n")
+                temp_main_file.write("em_address(localhost, 8000).\n")
+                temp_main_file.write("load_devices([simulator]).\n")
+                temp_main_file.write("load_device(simulator, Host:Port, [pid(PID)]) :-\n")
+                temp_main_file.write("    dir(dev_simulator, File),\n")
+                temp_main_file.write("    ARGS = ['-e', 'swipl', '-t', 'start', File, '--host', Host, '--port', Port],\n")
+                temp_main_file.write("    logging(info(5, app), \"Command to initialize device simulator: xterm -e ~w\", [ARGS]),\n")
+                temp_main_file.write("    process_create(path(xterm), ARGS, [process(PID)]).\n")
+            
             cmd = [
                 'swipl',
                 '-g', 'true',
                 '-t', 'halt',
                 self.config_pl,
-                self.main_pl,
+                temp_main_file_path,
                 temp_file_path
             ]
             
             print("Executing property verification...")
+            print(f"Property: {property_expr}")
             print(f"Command: {' '.join(cmd)}\n")
             
-            # Run the command
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=self.indigolog_dir
-            )
+            # Run the command with cleanup
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
             
-            # Combine stdout and stderr for full output
-            full_output = result.stdout + result.stderr
+            # Clean up the temporary files
+            try:
+                os.unlink(temp_model_file_path)
+            except:
+                pass
+            try:
+                os.unlink(temp_main_file_path)
+            except:
+                pass
+            
+            if not exec_success:
+                return False, full_output
             
             # Print the output
             print("Prolog Output:")
@@ -803,14 +930,14 @@ class IndiGologReasoner:
             verification_success = "RESULT: SUCCESS" in full_output
             verification_failure = "RESULT: FAILURE" in full_output
             
-            if verification_success and result.returncode == 0:
+            if verification_success and returncode == 0:
                 success = True
-                print("\n✓ Property verification COMPLETED successfully")
-            elif verification_failure or result.returncode != 0:
+                print("\n✓ Property can be satisfied (trace found)")
+            elif verification_failure or returncode != 0:
                 success = False
-                print("\n✗ Property verification FAILED")
+                print("\n✗ Property cannot be satisfied (no trace found)")
             else:
-                success = result.returncode == 0
+                success = returncode == 0
             
             return success, full_output
             
@@ -823,11 +950,14 @@ class IndiGologReasoner:
             error_msg = f"Error executing property verification: {e}"
             print(error_msg)
             return False, error_msg
-        
         finally:
-            # Clean up temporary file
+            # Ensure temporary files are cleaned up
             try:
-                os.unlink(temp_file_path)
+                os.unlink(temp_model_file_path)
+            except:
+                pass
+            try:
+                os.unlink(temp_main_file_path)
             except:
                 pass
     
@@ -971,8 +1101,13 @@ Examples:
     )
     verify_parser.add_argument(
         '--proc-name',
-        default='reasoning_task',
-        help='Name of the verification procedure to execute (default: reasoning_task)'
+        default='property_verification',
+        help='Name of the verification procedure to execute (default: property_verification)'
+    )
+    verify_parser.add_argument(
+        '--property',
+        required=True,
+        help='Property expression to verify (e.g., "signed_contract(id), neg(done(application_finalised(id)))")'
     )
     
     # Interactive mode
@@ -1040,7 +1175,7 @@ Examples:
         
         elif args.task == 'verify':
             # Run the property verification
-            success, output = reasoner.verify_property(args.proc_name)
+            success, output = reasoner.verify_property(args.property, args.proc_name)
             
             # Exit with appropriate code
             sys.exit(0 if success else 1)

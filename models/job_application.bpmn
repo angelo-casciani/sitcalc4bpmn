@@ -118,8 +118,15 @@
     <task id="Activity_05cbudk" name="communicate recruitment">
       <incoming>Flow_1g8dl45</incoming>
       <outgoing>Flow_1oxjlwm</outgoing>
+      <property id="Property_0prufe7" name="__targetRef_placeholder" />
+      <dataInputAssociation id="DataInputAssociation_1akl9cm">
+        <sourceRef>DataObjectReference_1hgqt8m</sourceRef>
+        <targetRef>Property_0prufe7</targetRef>
+      </dataInputAssociation>
     </task>
     <sequenceFlow id="Flow_1oxjlwm" sourceRef="Activity_05cbudk" targetRef="Gateway_0he2a1t" />
+    <dataObjectReference id="DataObjectReference_1hgqt8m" name="signed contract" dataObjectRef="DataObject_066ajbe" />
+    <dataObject id="DataObject_066ajbe" />
   </process>
   <process id="Process_14sepxr">
     <laneSet id="LaneSet_1yxgywf" />
@@ -331,7 +338,7 @@
   <bpmndi:BPMNDiagram id="BpmnDiagram_1">
     <bpmndi:BPMNPlane id="BpmnPlane_1" bpmnElement="Collaboration_07kr5pw">
       <bpmndi:BPMNShape id="Participant_1ytncoo_di" bpmnElement="Participant_1ytncoo" isHorizontal="true">
-        <omgdc:Bounds x="160" y="80" width="2140" height="350" />
+        <omgdc:Bounds x="160" y="80" width="2140" height="390" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_1o0ez3t_di" bpmnElement="Event_1o0ez3t">
@@ -398,6 +405,12 @@
       <bpmndi:BPMNShape id="Activity_0v9ach5_di" bpmnElement="Activity_0v9ach5">
         <omgdc:Bounds x="400" y="260" width="100" height="80" />
         <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="BPMNShape_1y9hx3l" bpmnElement="DataObjectReference_1hgqt8m">
+        <omgdc:Bounds x="2002" y="375" width="36" height="50" />
+        <bpmndi:BPMNLabel>
+          <omgdc:Bounds x="1983" y="432" width="75" height="14" />
+        </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="BPMNShape_1m628wm" bpmnElement="Activity_18iky86" isExpanded="true">
         <omgdc:Bounds x="770" y="100" width="460" height="145" />
@@ -917,6 +930,10 @@
         <omgdi:waypoint x="1080" y="395" />
         <omgdi:waypoint x="870" y="395" />
         <omgdi:waypoint x="870" y="597" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataInputAssociation_1akl9cm_di" bpmnElement="DataInputAssociation_1akl9cm">
+        <omgdi:waypoint x="2002" y="400" />
+        <omgdi:waypoint x="1950" y="400" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

@@ -109,8 +109,8 @@ For online help and background, visit https://www.swi-prolog.org
 For built-in help, use ?- help(Topic). or ?- apropos(Word).
 
 ?- main.
-Controllers available: [congolog]
-1. congolog
+Controllers available: [bpmn_process]
+1. bpmn_process
 
 
 Select controller: 1.
@@ -153,7 +153,7 @@ process_withdrawal(end,1)
 
 ### Reasoning Tasks
 
-These are the queries for the reasoning tasks reported in the AAAI26 submission:
+These are the queries for the reasoning tasks:
 
 ```prolog
 $ swipl indigolog/config.pl examples/job_bpmn/main.pl

@@ -148,10 +148,8 @@ class ReasoningService:
         },
         'execute': {
             'name': 'Process Execution',
-            'description': 'Execute the full BPMN process with a specific controller',
-            'parameters': [
-                {'name': 'controller_number', 'type': 'number', 'label': 'Controller Number', 'placeholder': '1', 'default': 1}
-            ]
+            'description': 'Execute the full BPMN process (uses controller 1 which corresponds to bpmn_process)',
+            'parameters': []
         },
         'conformance': {
             'name': 'Conformance Checking',
@@ -162,9 +160,9 @@ class ReasoningService:
         },
         'verify': {
             'name': 'Property Verification',
-            'description': 'Execute a reasoning task procedure to verify a specific property',
+            'description': 'Execute a reasoning task procedure to verify a specific property. Enter conditions as comma-separated expressions.',
             'parameters': [
-                {'name': 'proc_name', 'type': 'text', 'label': 'Procedure Name', 'placeholder': 'reasoning_task', 'default': 'reasoning_task'}
+                {'name': 'property', 'type': 'text', 'label': 'Property Conditions (comma-separated)', 'placeholder': 'e.g., signed_contract(id), not(done(application_finalised(id)))'}
             ]
         }
     }
@@ -273,13 +271,8 @@ class ReasoningService:
     
     def _execute_process(self, params):
         """Execute process execution task."""
-        controller_number = params.get('controller_number', 1)
-        
-        # Ensure controller_number is an integer
-        try:
-            controller_number = int(controller_number)
-        except (ValueError, TypeError):
-            return False, "Controller number must be an integer"
+        # Always use controller 1 (bpmn_process controller)
+        controller_number = 1
         
         # Execute process
         return self.reasoner.execute_process(controller_number)
@@ -308,10 +301,53 @@ class ReasoningService:
     
     def _execute_verify(self, params):
         """Execute property verification task."""
-        proc_name = params.get('proc_name', 'reasoning_task').strip()
+        property_str = params.get('property', '').strip()
         
-        if not proc_name:
-            return False, "Procedure name is required"
+        if not property_str:
+            return False, "Property conditions are required"
+        
+        # Always use the default procedure name
+        proc_name = 'property_verification'
+        
+        # Convert 'not(' to 'neg(' to respect IndiGolog syntax
+        # Use regex to handle all occurrences, including nested ones
+        import re
+        property_str = re.sub(r'\bnot\s*\(', 'neg(', property_str)
+        
+        # Parse comma-separated conditions and convert to Prolog 'and' syntax
+        # Split by comma but respect parentheses (similar to parse_action_list)
+        conditions = []
+        current_condition = ""
+        paren_depth = 0
+        
+        for char in property_str:
+            if char == '(':
+                paren_depth += 1
+                current_condition += char
+            elif char == ')':
+                paren_depth -= 1
+                current_condition += char
+            elif char == ',' and paren_depth == 0:
+                if current_condition.strip():
+                    conditions.append(current_condition.strip())
+                current_condition = ""
+            else:
+                current_condition += char
+        
+        # Don't forget the last condition
+        if current_condition.strip():
+            conditions.append(current_condition.strip())
+        
+        # Build the Prolog property expression with nested 'and' predicates
+        if len(conditions) == 0:
+            return False, "At least one condition is required"
+        elif len(conditions) == 1:
+            property_expr = conditions[0]
+        else:
+            # Build nested and(...) structure: and(cond1, and(cond2, and(cond3, ...)))
+            property_expr = conditions[-1]
+            for cond in reversed(conditions[:-1]):
+                property_expr = f"and({cond}, {property_expr})"
         
         # Execute property verification
-        return self.reasoner.verify_property(proc_name)
+        return self.reasoner.verify_property(property_expr, proc_name)

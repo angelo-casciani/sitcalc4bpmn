@@ -262,14 +262,18 @@ proc(exog_actions,
 
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
 
-proc(control(reasoning_task), search(reasoning_task)).
-proc(reasoning_task,
+% simulate process BP under exogenous events
+proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
+
+proc(control(property_verification), search(property_verification)).
+proc(property_verification,
   [
     conc([bpmn_process, end_bpmn], exog_actions),
     ?(some([id],
-          and(signed_contract(id),
-              neg(done(application_finalised(id))))))
-  ] % end of search
+          true  % REPLACE WITH PROPERTY
+        )
+      )
+  ]
 ).
 
 % Translations of domain actions to real actions (one-to-one)

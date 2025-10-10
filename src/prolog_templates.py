@@ -71,6 +71,9 @@ proc(exog_actions,
 
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
 
+% simulate process BP under exogenous events
+proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
+
 proc(control(property_verification), search(property_verification)).
 proc(property_verification,
   [

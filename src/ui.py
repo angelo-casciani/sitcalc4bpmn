@@ -15,12 +15,22 @@ import gradio as gr
 import os
 import sys
 from pathlib import Path
+import tempfile
 
 # Add src directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from translator_service import TranslatorService
 from reasoning_service import ReasoningService
+
+# Import pm4py for BPMN visualization
+try:
+    from pm4py.objects.bpmn.importer import importer as bpmn_importer
+    from pm4py.visualization.bpmn import visualizer as bpmn_visualizer
+    PM4PY_AVAILABLE = True
+except ImportError:
+    PM4PY_AVAILABLE = False
+    print("Warning: pm4py not available. BPMN visualization will be disabled.")
 
 
 class BPMNIndiGologUI:
@@ -31,6 +41,40 @@ class BPMNIndiGologUI:
         self.translator = TranslatorService()
         self.current_model = None
         self.reasoner = None
+        self.current_bpmn_path = None
+    
+    def visualize_bpmn(self, bpmn_path):
+        """
+        Visualize a BPMN file using pm4py.
+        
+        Args:
+            bpmn_path: Path to the BPMN file
+        
+        Returns:
+            str: Path to the generated visualization image, or None if failed
+        """
+        if not PM4PY_AVAILABLE:
+            return None
+        
+        if not bpmn_path or not os.path.exists(bpmn_path):
+            return None
+        
+        try:
+            # Import BPMN model
+            bpmn_graph = bpmn_importer.apply(bpmn_path)
+            
+            # Generate visualization
+            gviz = bpmn_visualizer.apply(bpmn_graph)
+            
+            # Save to temporary file
+            temp_dir = tempfile.gettempdir()
+            output_path = os.path.join(temp_dir, "bpmn_visualization.png")
+            bpmn_visualizer.save(gviz, output_path)
+            
+            return output_path
+        except Exception as e:
+            print(f"Error visualizing BPMN: {e}")
+            return None
     
     def translate_bpmn(self, bpmn_file, model_name):
         """
@@ -41,15 +85,18 @@ class BPMNIndiGologUI:
             model_name: Name for the model
         
         Returns:
-            tuple: (status_message, prolog_code, model_name_for_state, button_visible)
+            tuple: (status_message, prolog_code, model_name_for_state, inspect_button_visible, viz_button_visible)
         """
         if bpmn_file is None:
-            return "⚠️ Please upload a BPMN file", "", "", gr.update(visible=False)
+            return "⚠️ Please upload a BPMN file", "", "", gr.update(visible=False), gr.update(visible=False)
         
         if not model_name or not model_name.strip():
-            return "⚠️ Please provide a model name", "", "", gr.update(visible=False)
+            return "⚠️ Please provide a model name", "", "", gr.update(visible=False), gr.update(visible=False)
         
         model_name = model_name.strip()
+        
+        # Store BPMN path for visualization
+        self.current_bpmn_path = bpmn_file.name
         
         # Perform translation
         success, message, pl_path, prolog_code = self.translator.translate_bpmn_file(
@@ -59,9 +106,10 @@ class BPMNIndiGologUI:
         if success:
             self.current_model = model_name
             success_msg = f"✅ Translation completed successfully!\n\nModel: {model_name}\nReady for reasoning tasks."
-            return success_msg, prolog_code, model_name, gr.update(visible=True)
+            viz_button_visible = PM4PY_AVAILABLE
+            return success_msg, prolog_code, model_name, gr.update(visible=True), gr.update(visible=viz_button_visible)
         else:
-            return f"❌ Translation failed:\n{message}", "", "", gr.update(visible=False)
+            return f"❌ Translation failed:\n{message}", "", "", gr.update(visible=False), gr.update(visible=False)
     
     def load_existing_model(self, model_name):
         """
@@ -71,19 +119,29 @@ class BPMNIndiGologUI:
             model_name: Name of the model to load
         
         Returns:
-            tuple: (status_message, prolog_code, model_name_for_state, button_visible)
+            tuple: (status_message, prolog_code, model_name_for_state, inspect_button_visible, viz_button_visible)
         """
         if not model_name or model_name == "Select a model...":
-            return "⚠️ Please select a model", "", "", gr.update(visible=False)
+            return "⚠️ Please select a model", "", "", gr.update(visible=False), gr.update(visible=False)
         
         success, content = self.translator.get_translated_prolog(model_name)
         
         if success:
             self.current_model = model_name
+            
+            # Try to find the corresponding BPMN file
+            bpmn_path = os.path.join("models", f"{model_name}.bpmn")
+            if os.path.exists(bpmn_path):
+                self.current_bpmn_path = bpmn_path
+                viz_button_visible = PM4PY_AVAILABLE
+            else:
+                self.current_bpmn_path = None
+                viz_button_visible = False
+            
             success_msg = f"✅ Model loaded successfully!\n\nModel: {model_name}\nReady for reasoning tasks."
-            return success_msg, content, model_name, gr.update(visible=True)
+            return success_msg, content, model_name, gr.update(visible=True), gr.update(visible=viz_button_visible)
         else:
-            return f"❌ Error loading model:\n{content}", "", "", gr.update(visible=False)
+            return f"❌ Error loading model:\n{content}", "", "", gr.update(visible=False), gr.update(visible=False)
     
     def get_reasoning_interface(self, model_name, task_id):
         """
@@ -270,6 +328,7 @@ class BPMNIndiGologUI:
                     
                     with gr.Row():
                         inspect_code_btn = gr.Button("🔍 Inspect Generated IndiGolog Code", visible=False, size="sm")
+                        visualize_bpmn_btn = gr.Button("📊 Show BPMN Visualization", visible=False, size="sm")
                     
                     prolog_output = gr.Code(
                         label="Generated IndiGolog Code",
@@ -278,11 +337,17 @@ class BPMNIndiGologUI:
                         visible=False
                     )
                     
+                    bpmn_visualization = gr.Image(
+                        label="BPMN Visualization",
+                        visible=False,
+                        type="filepath"
+                    )
+                    
                     # Wire up translation
                     translate_result = translate_btn.click(
                         fn=self.translate_bpmn,
                         inputs=[bpmn_file_input, model_name_input],
-                        outputs=[translation_status, prolog_output, current_model_state, inspect_code_btn]
+                        outputs=[translation_status, prolog_output, current_model_state, inspect_code_btn, visualize_bpmn_btn]
                     )
                     
                     # Toggle code visibility
@@ -303,6 +368,32 @@ class BPMNIndiGologUI:
                         fn=lambda v: not v,
                         inputs=[code_visible_state],
                         outputs=[code_visible_state]
+                    )
+                    
+                    # Toggle BPMN visualization
+                    def toggle_bpmn_visualization(current_visible):
+                        """Toggle between showing and hiding BPMN visualization."""
+                        new_visible = not current_visible
+                        button_text = "📊 Show BPMN Visualization" if not new_visible else "❌ Hide BPMN Visualization"
+                        
+                        # Generate visualization if showing
+                        if new_visible and self.current_bpmn_path:
+                            viz_path = self.visualize_bpmn(self.current_bpmn_path)
+                            return gr.update(visible=new_visible, value=viz_path), gr.update(value=button_text)
+                        else:
+                            return gr.update(visible=new_visible), gr.update(value=button_text)
+                    
+                    # Track visibility state for BPMN visualization
+                    bpmn_viz_visible_state = gr.State(False)
+                    
+                    visualize_bpmn_btn.click(
+                        fn=toggle_bpmn_visualization,
+                        inputs=[bpmn_viz_visible_state],
+                        outputs=[bpmn_visualization, visualize_bpmn_btn]
+                    ).then(
+                        fn=lambda v: not v,
+                        inputs=[bpmn_viz_visible_state],
+                        outputs=[bpmn_viz_visible_state]
                     )
                 
                 # ===== TAB 2: Load Existing Model =====
@@ -328,6 +419,7 @@ class BPMNIndiGologUI:
                     
                     with gr.Row():
                         inspect_loaded_code_btn = gr.Button("🔍 Inspect IndiGolog Code", visible=False, size="sm")
+                        visualize_loaded_bpmn_btn = gr.Button("📊 Show BPMN Visualization", visible=False, size="sm")
                     
                     loaded_prolog_output = gr.Code(
                         label="IndiGolog Code",
@@ -336,11 +428,17 @@ class BPMNIndiGologUI:
                         visible=False
                     )
                     
+                    loaded_bpmn_visualization = gr.Image(
+                        label="BPMN Visualization",
+                        visible=False,
+                        type="filepath"
+                    )
+                    
                     # Wire up loading
                     load_btn.click(
                         fn=self.load_existing_model,
                         inputs=[model_list],
-                        outputs=[load_status, loaded_prolog_output, current_model_state, inspect_loaded_code_btn]
+                        outputs=[load_status, loaded_prolog_output, current_model_state, inspect_loaded_code_btn, visualize_loaded_bpmn_btn]
                     )
                     
                     # Toggle code visibility for loaded models
@@ -361,6 +459,32 @@ class BPMNIndiGologUI:
                         fn=lambda v: not v,
                         inputs=[loaded_code_visible_state],
                         outputs=[loaded_code_visible_state]
+                    )
+                    
+                    # Toggle BPMN visualization for loaded models
+                    def toggle_loaded_bpmn_visualization(current_visible):
+                        """Toggle between showing and hiding BPMN visualization for loaded models."""
+                        new_visible = not current_visible
+                        button_text = "📊 Show BPMN Visualization" if not new_visible else "❌ Hide BPMN Visualization"
+                        
+                        # Generate visualization if showing
+                        if new_visible and self.current_bpmn_path:
+                            viz_path = self.visualize_bpmn(self.current_bpmn_path)
+                            return gr.update(visible=new_visible, value=viz_path), gr.update(value=button_text)
+                        else:
+                            return gr.update(visible=new_visible), gr.update(value=button_text)
+                    
+                    # Track visibility state for loaded BPMN visualization
+                    loaded_bpmn_viz_visible_state = gr.State(False)
+                    
+                    visualize_loaded_bpmn_btn.click(
+                        fn=toggle_loaded_bpmn_visualization,
+                        inputs=[loaded_bpmn_viz_visible_state],
+                        outputs=[loaded_bpmn_visualization, visualize_loaded_bpmn_btn]
+                    ).then(
+                        fn=lambda v: not v,
+                        inputs=[loaded_bpmn_viz_visible_state],
+                        outputs=[loaded_bpmn_viz_visible_state]
                     )
                 
                 # ===== TAB 3: Reasoning =====
@@ -512,9 +636,8 @@ class BPMNIndiGologUI:
                     - **Example**: Verify `job_needed(1),prepare_application(end,1)`
                     
                     **▶️ Process Execution**
-                    - **Purpose**: Execute the full BPMN process with a specific controller
-                    - **Parameters**:
-                      - *Controller Number*: Which controller to use (usually 1)
+                    - **Purpose**: Execute the full BPMN process (automatically uses controller 1 for bpmn_process)
+                    - **Parameters**: None (just start the execution)
                     - **Note**: This opens an interactive window for exogenous events
                     
                     **📋 Conformance Checking**

@@ -10,19 +10,43 @@ This project provides a complete pipeline from BPMN models to formal reasoning:
 - **Execution**: Run BPMN processes with exogenous event handling
 - **Web UI**: User-friendly Gradio interface for translation and reasoning
 
+## Project Structure
+
+```
+sitcalc4bpmn/
+├── src/
+│   ├── main.py              # BPMN to IndiGolog translator
+│   ├── reason.py            # Reasoning task executor (6 tasks)
+│   ├── bpmn_parser.py       # BPMN XML parser
+│   ├── prolog_translator.py # Prolog code generator
+│   └── prolog_templates.py  # Prolog code templates
+├── models/                   # Input BPMN files (.bpmn)
+├── pl_models/               # Generated IndiGolog translations
+│   └── <model_name>/
+│       ├── <model_name>.pl  # Translated process (fluents, actions, BAT)
+│       └── main.pl          # Main IndiGolog loader
+├── indigolog/               # IndiGolog framework (submodule)
+│   ├── config.pl            # Framework configuration
+│   ├── interpreters/        # ConGolog interpreters
+│   ├── eval/                # Reasoning engines (eval, trans_star, do)
+│   ├── devices/             # Device managers (simulator with Tkinter GUI)
+│   └── lib/                 # Utility libraries
+└── README.md                # This file
+```
+
 ## Features
 
 ### Web-Based User Interface (`src/ui.py`)
-**NEW!** A simple and intuitive web interface for:
+An intuitive web interface for:
 - **Upload & Translate**: Drag-and-drop BPMN files and translate them to IndiGolog
 - **View Translation**: Display generated Prolog code with syntax highlighting
 - **Load Models**: Access previously translated models
 - **Reasoning Tasks**: Execute all reasoning tasks with dynamic parameter inputs
   - Projection, Legality, Execution, Conformance, Property Verification
   - Clear parameter descriptions and validation
-  - Real-time output display
+  - Output display
 
-### Translation (`src/bpmn_translator.py`)
+### Translation (`src/bpmn2indi_cli.py`)
 Parse BPMN XML files and generate IndiGolog Prolog code with:
 - Fluent definitions (state variables)
 - Action definitions and preconditions
@@ -74,6 +98,8 @@ python src/ui.py
 
 This will start a local web server (default: http://127.0.0.1:7860) and open the interface in your browser.
 
+> **Note:** For command-line usage and detailed examples, see the [Command Reference](#command-reference) section below.
+
 ### Web UI Features:
 
 1. **Translation Tab**: Upload BPMN files and translate them to IndiGolog
@@ -95,12 +121,12 @@ This will start a local web server (default: http://127.0.0.1:7860) and open the
 ### 1. Translate a BPMN Model (CLI)
 
 ```bash
-python src/bpmn_translator.py <model_name>
+python src/bpmn2indi_cli.py <model_name>
 ```
 
 Example:
 ```bash
-python src/bpmn_translator.py job_application
+python src/bpmn2indi_cli.py job_application
 ```
 
 This reads `models/job_application.bpmn` and generates:
@@ -267,30 +293,6 @@ python src/reason.py job_application conformance \
 
 # 6. Verify custom properties
 python src/reason.py job_application verify --proc-name reasoning_task
-```
-
-## Project Structure
-
-```
-sitcalc4bpmn/
-├── src/
-│   ├── main.py              # BPMN to IndiGolog translator
-│   ├── reason.py            # Reasoning task executor (6 tasks)
-│   ├── bpmn_parser.py       # BPMN XML parser
-│   ├── prolog_translator.py # Prolog code generator
-│   └── prolog_templates.py  # Prolog code templates
-├── models/                   # Input BPMN files (.bpmn)
-├── pl_models/               # Generated IndiGolog translations
-│   └── <model_name>/
-│       ├── <model_name>.pl  # Translated process (fluents, actions, BAT)
-│       └── main.pl          # Main IndiGolog loader
-├── indigolog/               # IndiGolog framework (submodule)
-│   ├── config.pl            # Framework configuration
-│   ├── interpreters/        # ConGolog interpreters
-│   ├── eval/                # Reasoning engines (eval, trans_star, do)
-│   ├── devices/             # Device managers (simulator with Tkinter GUI)
-│   └── lib/                 # Utility libraries
-└── README.md                # This file
 ```
 
 ## Advanced Usage

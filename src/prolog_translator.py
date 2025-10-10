@@ -1,6 +1,17 @@
 import re
 from prolog_templates import *
 
+START_EVENT = 'startEvent'
+END_EVENT = 'endEvent'
+INTERMEDIATE_THROW_EVENT = 'intermediateThrowEvent'
+INTERMEDIATE_CATCH_EVENT = 'intermediateCatchEvent'
+TASK = 'task'
+EXCLUSIVE_GATEWAY = 'exclusiveGateway'
+PARALLEL_GATEWAY = 'parallelGateway'
+EVENT_BASED_GATEWAY = 'eventBasedGateway'
+GATEWAY = 'gateway'
+SUBPROCESS = 'subProcess'
+
 class PrologTranslator:
     def __init__(self, parser):
         self.parser = parser
@@ -10,12 +21,44 @@ class PrologTranslator:
         s = name.lower()
         s = re.sub(r'[\s-]+', '_', s)
         s = re.sub(r'[?\'"]', '', s)
-        
-        # Special handling for message events: "send X" becomes "X_sent"
         if s.startswith('send_'):
             s = s.replace('send_', '', 1) + '_sent'
-        
         return s
+    
+    def _is_element_type(self, elem, element_type):
+        """Check if an element matches a specific type."""
+        return elem and element_type in elem.get('type', '')
+    
+    def _is_message_catch(self, elem_id):
+        """Check if an element is a message catch event (target of a message flow)."""
+        return any(v == elem_id for v in self.parser.message_flows.values())
+    
+    def _find_throw_event_for_catch(self, catch_elem_id):
+        """Find the throw event that corresponds to a catch event via message flow."""
+        source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == catch_elem_id), None)
+        if source_msg_id:
+            return self._find_element_by_id(source_msg_id)
+        return None
+    
+    def _get_done_condition_for_element(self, elem):
+        """Generate the done() condition for a predecessor element."""
+        if self._is_element_type(elem, TASK):
+            return f"done({self._prologify(elem['name'])}(end, ID))"
+        elif self._is_element_type(elem, INTERMEDIATE_THROW_EVENT):
+            return f"done({self._prologify(elem['name'])}(ID))"
+        elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
+            source_elem = self._find_throw_event_for_catch(elem['id'])
+            if source_elem:
+                return f"done({self._prologify(source_elem['name'])}(ID))"
+        elif self._is_element_type(elem, START_EVENT):
+            if self._is_message_catch(elem['id']):
+                source_elem = self._find_throw_event_for_catch(elem['id'])
+                if source_elem:
+                    return f"done({self._prologify(source_elem['name'])}(ID))"
+            return f"done({self._prologify(elem['name'])}(ID))"
+        else:
+            return f"done({self._prologify(elem['name'])}(ID))"
+        return None
     
     def _build_nested_and(self, conditions):
         """Build nested binary and/2 predicates from a list of conditions."""
@@ -92,85 +135,46 @@ class PrologTranslator:
         
         pool_names = [self._prologify(p['name']) for p in self.parser.participants.values()]
         fluents.add(f"rel_fluent(pool(P)) :- member(P, [{', '.join(pool_names)}]).")
-        
         fluents.add('waiting(_ID, _POOL)')
-        # Note: acquire and shut_down causes are already in STANDARD_CAUSES, don't duplicate!
 
-        # Handle message flows - but ONLY for those that target message catch START events
-        # These are critical for initiating pools and must cause waiting()
-        # Other message flows (mid-process) should NOT cause waiting as they create excessive search paths
         for source_id, target_id in self.parser.message_flows.items():
             source_elem = self._find_element_by_id(source_id)
             target_elem = self._find_element_by_id(target_id)
-            if source_elem and target_elem:
-                # Only generate waiting cause if target is a START event (message catch start)
-                if 'startEvent' in target_elem.get('type', ''):
-                    target_pool = self._find_pool_for_element(target_id)
-                    if target_pool:
-                        source_action = self._prologify(source_elem['name'])
-                        target_pool_name = self._prologify(target_pool['name'])
-                        causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
+            if not (source_elem and target_elem and self._is_element_type(target_elem, START_EVENT)):
+                continue
+            
+            target_process = next((proc for proc in self.parser.processes.values() if target_id in proc['elements']), None)
+            if target_process and not self._is_in_subprocess(target_id, target_process):
+                target_pool = self._find_pool_for_element(target_id)
+                if target_pool:
+                    source_action = self._prologify(source_elem['name'])
+                    target_pool_name = self._prologify(target_pool['name'])
+                    causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
 
-                # Handle message flows - but ONLY for those that target START events at the POOL level (not in subprocesses)
-        # When a throw event sends to a message catch START event, it initiates that pool
-        # These must cause waiting(). Other message flows (to intermediate catch events or subprocess starts) 
-        # should NOT cause waiting as they create excessive search paths.
-        for source_id, target_id in self.parser.message_flows.items():
-            source_elem = self._find_element_by_id(source_id)
-            target_elem = self._find_element_by_id(target_id)
-            if source_elem and target_elem:
-                # Only generate waiting cause if target is a START event AND not in a subprocess
-                if 'startEvent' in target_elem.get('type', ''):
-                    # Find which process contains this target element
-                    target_process = None
-                    for proc in self.parser.processes.values():
-                        if target_id in proc['elements']:
-                            target_process = proc
-                            break
-                    if target_process and not self._is_in_subprocess(target_id, target_process):
-                        target_pool = self._find_pool_for_element(target_id)
-                        if target_pool:
-                            source_action = self._prologify(source_elem['name'])
-                            target_pool_name = self._prologify(target_pool['name'])
-                            causes.append(f"causes_true({source_action}(ID), waiting(ID, {target_pool_name}), true).")
-
-        # Handle start and end events for each pool
         for proc_id, process in self.parser.processes.items():
             pool_name = self._prologify(self.parser.get_participant_by_process_id(proc_id)['name'])
             for elem in process['elements'].values():
                 elem_name = self._prologify(elem['name'])
                 elem_id = elem['id']
                 
-                if 'startEvent' in elem['type'] and not self._is_in_subprocess(elem_id, process):
-                    # Check if this is a message catch start event
-                    is_message_catch = any(v == elem_id for v in self.parser.message_flows.values())
-                    if not is_message_catch:
-                        # Only non-message-catch start events cause waiting
+                if self._is_element_type(elem, START_EVENT) and not self._is_in_subprocess(elem_id, process):
+                    if not self._is_message_catch(elem_id):
                         causes.append(f"causes_true({elem_name}(ID), waiting(ID, {pool_name}), true).")
                 
-                if 'endEvent' in elem['type'] and elem_name:
+                if self._is_element_type(elem, END_EVENT) and elem_name:
                     is_in_subprocess = self._is_in_subprocess(elem_id, process)
                     is_terminate = elem.get('is_terminate', False)
                     
                     if not is_in_subprocess:
-                        # Regular end events clear both active and waiting
                         causes.append(f"causes_false({elem_name}(ID), active(ID, {pool_name}), true).")
                         causes.append(f"causes_false({elem_name}(ID), waiting(ID, {pool_name}), true).")
                     elif is_in_subprocess and is_terminate:
-                        # Terminate end events in subprocesses only clear active (exception handling)
                         causes.append(f"causes_false({elem_name}(ID), active(ID, {pool_name}), true).")
 
         self._add_data_and_gateway_fluents(fluents, causes)
         
-        # Remove duplicates from causes list (preserving order)
-        seen = set()
-        unique_causes = []
-        for cause in causes:
-            if cause not in seen:
-                seen.add(cause)
-                unique_causes.append(cause)
+        unique_causes = list(dict.fromkeys(causes))
         
-        # Interleave fluents with their causal laws (matching job.pl structure)
         interleaved_code = "\n% Domain-dependent Relational Fluents\n" + self._interleave_fluents_and_causes(fluents, unique_causes) + "\n\n"
         init_code = self._generate_initial_state(fluents)
         return interleaved_code + init_code
@@ -178,21 +182,24 @@ class PrologTranslator:
     def _add_data_and_gateway_fluents(self, fluents, causes):
         for proc in self.parser.processes.values():
             for elem in proc['elements'].values():
-                if 'exclusiveGateway' in elem['type'] and elem['name']:
+                if self._is_element_type(elem, EXCLUSIVE_GATEWAY) and elem['name']:
                     fluent_name = self._prologify(elem['name'])
                     fluents.add(f"{fluent_name}(_ID)")
                     predecessors = self._find_true_predecessors(elem['id'], proc)
                     for pred_task in predecessors:
-                        if 'task' in pred_task['type']:
+                        if self._is_element_type(pred_task, TASK):
                             task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
-                            causes.extend([f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).", f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."])
+                            causes.extend([
+                                f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
+                                f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
+                            ])
+        
         for do_id, do_info in self.parser.data_objects.items():
             fluent_name = self._prologify(do_info['name'])
             fluents.add(f"{fluent_name}(_ID)")
             for proc in self.parser.processes.values():
                 for elem in proc['elements'].values():
-                    # Only tasks create data objects, not catch events
-                    if 'task' in elem['type'] and do_id in elem.get('data_outputs', []):
+                    if self._is_element_type(elem, TASK) and do_id in elem.get('data_outputs', []):
                         causes.append(f"causes_true({self._prologify(elem['name'])}(end, ID), {fluent_name}(ID), true).")
 
     def _generate_actions_and_preconditions(self):
@@ -203,29 +210,22 @@ class PrologTranslator:
         for proc_id, process in self.parser.processes.items():
             for elem_id, elem in process['elements'].items():
                 elem_name = self._prologify(elem['name'])
-                if not elem_name or 'gateway' in elem['type']: 
+                if not elem_name or GATEWAY in elem['type']: 
                     continue
 
-                # Get precondition
                 path_conditions = self._get_all_path_conditions(elem_id, process)
                 data_conditions = [self._prologify(self.parser.data_objects[do_id]['name']) + "(ID)" 
                                  for do_id in elem.get('data_inputs', []) if do_id in self.parser.data_objects]
                 
                 final_conditions = []
                 for path in path_conditions:
-                    # Sort conditions with done() first for better search performance
-                    # done() checks are typically more selective and should be evaluated first
                     all_conds_set = list(set(path + data_conditions))
                     done_conds = [c for c in all_conds_set if c.startswith('done(')]
                     other_conds = [c for c in all_conds_set if not c.startswith('done(')]
                     all_conds = sorted(done_conds) + sorted(other_conds)
                     
-                    # Check if this path contains ONLY fluent conditions (no done() calls)
-                    # If so, it means we're immediately after an exclusive gateway controlled by a fluent
-                    # neg() is OK - it's still a fluent condition
                     has_done_conditions = any(cond.startswith('done(') for cond in all_conds)
                     
-                    # If we have only fluent conditions (no done), use them as-is
                     if not has_done_conditions:
                         if len(all_conds) > 1:
                             final_conditions.append(self._build_nested_and(all_conds))
@@ -237,15 +237,9 @@ class PrologTranslator:
                         final_conditions.append(all_conds[0])
                 
                 if len(final_conditions) > 1: 
-                    # Check if ALL conditions are negations: or(neg(...), neg(...), ...)
-                    # If so, apply De Morgan's law: or(neg(A), neg(B)) = neg(and(A, B))
-                    # This dramatically improves search performance by reducing choice points
                     unique_conditions_list = list(set(final_conditions))
                     if all(c.startswith('neg(') and c.endswith(')') for c in unique_conditions_list):
-                        # Extract the inner conditions from neg(...), preserving order (don't sort)
-                        inner_conds = [c[4:-1] for c in unique_conditions_list]  # Remove "neg(" prefix and ")" suffix
-                        # Sort the inner conditions in a more logical order: fluents before IDs
-                        # This matches the pattern in job.pl
+                        inner_conds = [c[4:-1] for c in unique_conditions_list]
                         inner_conds_sorted = sorted(inner_conds, key=lambda x: (not x.endswith('(ID)'), x))
                         poss_cond = "neg(" + self._build_nested_and(inner_conds_sorted) + ")"
                     else:
@@ -255,48 +249,32 @@ class PrologTranslator:
                 else: 
                     poss_cond = "true"
 
-                # Generate action definitions
-                if 'task' in elem['type']:
+                if self._is_element_type(elem, TASK):
                     action_defs.append(f"prim_action({elem_name}(start, _ID)).\nposs({elem_name}(start, ID), {poss_cond}).")
-                    # Task end actions are exogenous
-                    # Add data input fluents to the precondition for end actions
-                    end_poss_parts = [f"running({elem_name}(start, ID))"]
-                    end_poss_parts.extend(data_conditions)
-                    if len(end_poss_parts) > 1:
-                        end_poss = self._build_nested_and(end_poss_parts)
-                    else:
-                        end_poss = end_poss_parts[0]
+                    end_poss_parts = [f"running({elem_name}(start, ID))"] + data_conditions
+                    end_poss = self._build_nested_and(end_poss_parts) if len(end_poss_parts) > 1 else end_poss_parts[0]
                     
                     if self._is_decision_task(elem_id, process):
                         exog_actions_list.append((f"{elem_name}(end, ID, RESULT)", f"{elem_name}(end, ID, _RESULT)", "id(ID), member(RESULT, [true, false])", end_poss))
                     else:
                         exog_actions_list.append((f"{elem_name}(end, ID)", f"{elem_name}(end, ID)", "id(ID)", end_poss))
                 
-                elif 'intermediateThrowEvent' in elem['type']:
-                    # Throw events are primitive actions
+                elif self._is_element_type(elem, INTERMEDIATE_THROW_EVENT):
                     action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                 
-                elif 'intermediateCatchEvent' in elem['type']:
-                    # Catch events are NOT actions - they just wait for throw events
-                    # Skip them in action generation
+                elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
                     pass
                 
-                elif 'endEvent' in elem['type']:
-                    # Check if this is a terminate end event in an event subprocess
+                elif self._is_element_type(elem, END_EVENT):
                     is_in_subprocess = self._is_in_subprocess(elem_id, process)
                     is_terminate = elem.get('is_terminate', False)
                     
                     if is_in_subprocess and is_terminate:
-                        # Terminate end events in event subprocesses are completion markers
                         action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                     elif not is_in_subprocess:
-                        # Regular end events (not in subprocess) need exception handling guards
-                        # Find the exception trigger event (start event of event subprocess) for this pool
                         exception_trigger = self._find_exception_trigger_event(proc_id)
                         if exception_trigger:
                             exception_trigger_name = self._prologify(exception_trigger['name'])
-                            # Add negation of exception trigger to precondition
-                            # This prevents the normal end from firing if the exception has occurred
                             if poss_cond == "true":
                                 enhanced_poss_cond = f"neg(done({exception_trigger_name}(ID)))"
                             else:
@@ -305,21 +283,14 @@ class PrologTranslator:
                         else:
                             action_defs.append(f"prim_action({elem_name}(_ID)).\nposs({elem_name}(ID), {poss_cond}).")
                 
-                elif 'startEvent' in elem['type']:
-                    # Check if this start event is a message catch (target of a message flow)
-                    is_message_catch = any(v == elem_id for v in self.parser.message_flows.values())
-                    
-                    if is_message_catch:
-                        # Message catch start events are NOT actions - they wait for the throw event
+                elif self._is_element_type(elem, START_EVENT):
+                    if self._is_message_catch(elem_id):
                         pass
                     elif self._is_in_subprocess(elem_id, process):
-                        # Event subprocess start events are exogenous (exception triggers)
-                        # Generate complex precondition that ensures exception can only fire when pools are active
                         precondition = self._generate_exception_trigger_precondition(elem_id, elem_name, proc_id, process)
                         exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", precondition))
                     else:
-                        # Regular main process start events are exogenous
-                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", "neg(done({elem_name}(ID)))".replace("{elem_name}", elem_name)))
+                        exog_actions_list.append((f"{elem_name}(ID)", f"{elem_name}(ID)", "id(ID)", f"neg(done({elem_name}(ID)))"))
 
         # Add acquire action
         action_defs.append(ACQUIRE_ACTION.strip())
@@ -343,25 +314,20 @@ class PrologTranslator:
         return code
 
     def _generate_running_proc_definition(self):
-        """Generates the dynamic running/1 procedure based on the user's template."""
+        """Generates the dynamic running/1 procedure."""
         decision_task_starts = []
         for proc_id, process in self.parser.processes.items():
             for elem_id, elem in process['elements'].items():
-                if 'task' in elem['type'] and self._is_decision_task(elem_id, process):
+                if self._is_element_type(elem, TASK) and self._is_decision_task(elem_id, process):
                     elem_name = self._prologify(elem['name'])
                     decision_task_starts.append(f"{elem_name}(start, _)")
         
         code = ABBREVIATIONS_HEADER
-        
-        # Add special case for decision tasks if any exist
         if decision_task_starts:
             decision_tasks_str = ",\n      ".join(sorted(decision_task_starts))
             code += RUNNING_PROC_DECISION_TASKS.format(decision_tasks=decision_tasks_str)
         
-        # Add default running/1 definition
-        code += RUNNING_PROC_DEFAULT
-        code += ACTIVE_INSTANCES_CHECK
-        
+        code += RUNNING_PROC_DEFAULT + ACTIVE_INSTANCES_CHECK
         return code
 
     def _generate_procedures(self):
@@ -459,56 +425,41 @@ class PrologTranslator:
         elem = process_data['elements'][elem_id]
         elem_name = self._prologify(elem['name'])
         
-        if 'startEvent' in elem['type']:
-            # Check if this is a message catch start event
-            is_message_catch = any(v == elem_id for v in self.parser.message_flows.values())
-            
-            if is_message_catch:
-                # Message catch start events need to wait for the corresponding throw event
-                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == elem_id), None)
-                if source_msg_id:
-                    source_elem = self._find_element_by_id(source_msg_id)
-                    if source_elem:
-                        source_name = self._prologify(source_elem['name'])
-                        wait_proc = f"?(done({source_name}(ID)))"
-                        # Continue with the rest of the process
-                        outgoing_flows = elem.get('outgoing', [])
-                        if outgoing_flows:
-                            next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
-                            next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
-                            if next_proc and next_proc != "[]":
-                                # If next_proc is already a sequence (starts with [), flatten it
-                                if next_proc.startswith('[') and next_proc.endswith(']'):
-                                    # Extract the inner elements and add wait_proc to them
-                                    inner = next_proc[1:-1]
-                                    return f"[{wait_proc}, {inner}]"
-                                else:
-                                    # Single element, create a sequence
-                                    return f"[{wait_proc}, {next_proc}]"
+        if self._is_element_type(elem, START_EVENT):
+            if self._is_message_catch(elem_id):
+                source_elem = self._find_throw_event_for_catch(elem_id)
+                if source_elem:
+                    source_name = self._prologify(source_elem['name'])
+                    wait_proc = f"?(done({source_name}(ID)))"
+                    outgoing_flows = elem.get('outgoing', [])
+                    if outgoing_flows:
+                        next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                        next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
+                        if next_proc and next_proc != "[]":
+                            if next_proc.startswith('[') and next_proc.endswith(']'):
+                                inner = next_proc[1:-1]
+                                return f"[{wait_proc}, {inner}]"
                             else:
-                                return wait_proc
-                        return wait_proc
+                                return f"[{wait_proc}, {next_proc}]"
+                        else:
+                            return wait_proc
+                    return wait_proc
             
-            # Non-message-catch start events: skip and go to next element
-            # (these are handled by the server/acquire mechanism, not in the procedure body)
             outgoing_flows = elem.get('outgoing', [])
             if outgoing_flows:
                 next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
                 return self._build_proc_for_element(next_elem_id, process_data, visited)
             else:
                 return "[]"
-        elif 'task' in elem['type']:
+        elif self._is_element_type(elem, TASK):
             wait_action = f"?(some(res, done({elem_name}(end, ID, res))))" if self._is_decision_task(elem_id, process_data) else f"?(done({elem_name}(end, ID)))"
             current_proc = f"[{elem_name}(start, ID), {wait_action}]"
-        elif 'intermediateThrowEvent' in elem['type']: 
-            # Throw events are primitive actions
+        elif self._is_element_type(elem, INTERMEDIATE_THROW_EVENT): 
             current_proc = f"{elem_name}(ID)"
-        elif 'endEvent' in elem['type']: 
+        elif self._is_element_type(elem, END_EVENT): 
             return f"{elem_name}(ID)" if elem_name else "[]"
-        elif 'intermediateCatchEvent' in elem['type']:
-            # Catch events wait for the corresponding throw event
-            source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == elem_id), None)
-            source_elem = self._find_element_by_id(source_msg_id) if source_msg_id else None
+        elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
+            source_elem = self._find_throw_event_for_catch(elem_id)
             if source_elem:
                 source_name = self._prologify(source_elem['name'])
                 current_proc = f"?(done({source_name}(ID)))"
@@ -520,50 +471,43 @@ class PrologTranslator:
         outgoing_flows = elem.get('outgoing', [])
         if not outgoing_flows: return current_proc or "[]"
         
-        if 'exclusiveGateway' in elem['type']:
-            # Check if this is a merge gateway (multiple incoming, single outgoing)
+        if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
             incoming_flows = elem.get('incoming', [])
             is_merge = len(incoming_flows) > 1 and len(outgoing_flows) == 1
             
             if is_merge:
-                # Merge gateway - just pass through to the next element
                 next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
                 return self._build_proc_for_element(next_elem_id, process_data, visited)
             else:
-                # Split gateway - generate if statement
                 cond_fluent = self._prologify(elem['name'])
                 default_flow_id = elem.get('default')
                 then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
                 then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
                 else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
                 return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
-        elif 'eventBasedGateway' in elem['type']:
+        elif self._is_element_type(elem, EVENT_BASED_GATEWAY):
             branches = []
             for flow_id in outgoing_flows:
                 target_id = process_data['sequence_flows'][flow_id]['target']
                 catch_event = process_data['elements'][target_id]
-                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == target_id), None)
-                source_event = self._find_element_by_id(source_msg_id)
+                source_event = self._find_throw_event_for_catch(target_id)
                 wait_event_name = self._prologify(source_event['name'])
                 rest_of_branch_id = process_data['sequence_flows'][catch_event['outgoing'][0]]['target']
                 rest_of_branch_proc = self._build_proc_for_element(rest_of_branch_id, process_data, visited.copy())
                 branches.append(f"[?(done({wait_event_name}(ID))), {rest_of_branch_proc}]")
             return "ndet(" + ", ".join(branches) + ")"
-        elif 'parallelGateway' in elem['type']:
+        elif self._is_element_type(elem, PARALLEL_GATEWAY):
             join_gateway_id = self._find_join_gateway(elem_id, process_data)
-            branch_starts = []
-            branch_terminators = []
+            branch_starts, branch_terminators = [], []
             
-            # Get the first task in each branch
             for flow_id in outgoing_flows:
                 branch_start_id = process_data['sequence_flows'][flow_id]['target']
                 branch_start_elem = process_data['elements'][branch_start_id]
-                if 'task' in branch_start_elem['type']:
+                if self._is_element_type(branch_start_elem, TASK):
                     branch_start_name = self._prologify(branch_start_elem['name'])
                     branch_starts.append(f"{branch_start_name}(start, ID)")
                     branch_terminators.append(f"done({branch_start_name}(end, ID))")
             
-            # Build wait condition for all branches to complete
             if len(branch_terminators) > 1:
                 wait_proc = f"?(and({', '.join(sorted(branch_terminators))}))"
             elif branch_terminators:
@@ -571,7 +515,6 @@ class PrologTranslator:
             else:
                 wait_proc = ""
             
-            # Get what comes after the join
             join_elem = process_data['elements'][join_gateway_id]
             if join_elem['outgoing']:
                 next_elem_id = process_data['sequence_flows'][join_elem['outgoing'][0]]['target']
@@ -579,7 +522,6 @@ class PrologTranslator:
             else:
                 next_proc = "[]"
             
-            # Build the concurrent structure
             conc_part = f"conc({', '.join(branch_starts)})" if len(branch_starts) > 1 else branch_starts[0] if branch_starts else "[]"
             
             if wait_proc and next_proc != "[]":
@@ -592,27 +534,21 @@ class PrologTranslator:
         next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
         next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
         
-        # Build sequence with proper flattening to avoid excessive nesting
         if not current_proc:
             return next_proc
         if next_proc == "[]":
             return current_proc
         
-        # Check if current_proc or next_proc are lists (but not special constructs like [?(...)])
         current_is_list = current_proc.startswith('[') and not current_proc.startswith('[?')
         next_is_list = next_proc.startswith('[') and not next_proc.startswith('[?')
         
         if current_is_list and next_is_list:
-            # Both are lists - merge: [a, b] + [c, d] -> [a, b, c, d]
             return f"[{current_proc[1:-1]}, {next_proc[1:-1]}]"
         elif current_is_list:
-            # Current is list - append next: [a, b] + c -> [a, b, c]
             return f"[{current_proc[1:-1]}, {next_proc}]"
         elif next_is_list:
-            # Next is list - prepend current: a + [b, c] -> [a, b, c]
             return f"[{current_proc}, {next_proc[1:-1]}]"
         else:
-            # Neither is list - create new list: a + b -> [a, b]
             return f"[{current_proc}, {next_proc}]"
 
     def _get_all_path_conditions(self, start_node_id, process_data):
@@ -649,66 +585,16 @@ class PrologTranslator:
                 is_xor_merge = len(predecessors) > 1 and not is_parallel_join
                 
                 if is_xor_merge:
-                    # Create SEPARATE paths for each predecessor (mutually exclusive branches)
                     for p in predecessors:
-                        pred_cond = None
-                        if 'task' in p['type']:
-                            pred_cond = f"done({self._prologify(p['name'])}(end, ID))"
-                        elif 'intermediateThrowEvent' in p['type']:
-                            pred_cond = f"done({self._prologify(p['name'])}(ID))"
-                        elif 'intermediateCatchEvent' in p['type']:
-                            # Catch events wait for their corresponding throw event
-                            source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
-                            if source_msg_id:
-                                source_elem = self._find_element_by_id(source_msg_id)
-                                if source_elem:
-                                    pred_cond = f"done({self._prologify(source_elem['name'])}(ID))"
-                        elif 'startEvent' in p['type']:
-                            # Check if it's a message catch start event
-                            is_message_catch = any(v == p['id'] for v in self.parser.message_flows.values())
-                            if is_message_catch:
-                                # Find the throw event
-                                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
-                                if source_msg_id:
-                                    source_elem = self._find_element_by_id(source_msg_id)
-                                    if source_elem:
-                                        pred_cond = f"done({self._prologify(source_elem['name'])}(ID))"
-                            else:
-                                pred_cond = f"done({self._prologify(p['name'])}(ID))"
-                        else:
-                            pred_cond = f"done({self._prologify(p['name'])}(ID))"
-                        
+                        pred_cond = self._get_done_condition_for_element(p)
                         if pred_cond:
                             paths.append(current_path_conditions + [pred_cond])
                 else:
-                    # Parallel paths - combine all predecessors into ONE path with AND
                     pred_conds = []
                     for p in predecessors:
-                        if 'task' in p['type']:
-                            pred_conds.append(f"done({self._prologify(p['name'])}(end, ID))")
-                        elif 'intermediateThrowEvent' in p['type']:
-                            pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
-                        elif 'intermediateCatchEvent' in p['type']:
-                            # Catch events wait for their corresponding throw event
-                            source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
-                            if source_msg_id:
-                                source_elem = self._find_element_by_id(source_msg_id)
-                                if source_elem:
-                                    pred_conds.append(f"done({self._prologify(source_elem['name'])}(ID))")
-                        elif 'startEvent' in p['type']:
-                            # Check if it's a message catch start event
-                            is_message_catch = any(v == p['id'] for v in self.parser.message_flows.values())
-                            if is_message_catch:
-                                # Find the throw event
-                                source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == p['id']), None)
-                                if source_msg_id:
-                                    source_elem = self._find_element_by_id(source_msg_id)
-                                    if source_elem:
-                                        pred_conds.append(f"done({self._prologify(source_elem['name'])}(ID))")
-                            else:
-                                pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
-                        else:
-                            pred_conds.append(f"done({self._prologify(p['name'])}(ID))")
+                        pred_cond = self._get_done_condition_for_element(p)
+                        if pred_cond:
+                            pred_conds.append(pred_cond)
                     paths.append(current_path_conditions + pred_conds)
                 continue
 
@@ -722,12 +608,10 @@ class PrologTranslator:
                 if not source_elem: continue
 
                 new_path_conditions = list(current_path_conditions)
-                if 'exclusiveGateway' in source_elem['type'] and source_elem['name']:
+                if self._is_element_type(source_elem, EXCLUSIVE_GATEWAY) and source_elem['name']:
                     fluent = self._prologify(source_elem['name']) + "(ID)"
                     is_default = source_elem.get('default') == inc_flow_id
                     new_path_conditions.append(f"neg({fluent})" if is_default else fluent)
-                    # STOP here - don't continue backward past a named exclusive gateway
-                    # The fluent IS the precondition
                     paths.append(new_path_conditions)
                     continue
                 q.append((source_id, new_path_conditions))
@@ -764,21 +648,15 @@ class PrologTranslator:
                 source_id = process_data['sequence_flows'][inc_id]['source']
                 source_elem = process_data['elements'].get(source_id)
                 if not source_elem: continue
-                # Named exclusive gateways are stopping points - they represent fluent conditions
-                if 'exclusiveGateway' in source_elem['type'] and source_elem['name']:
-                    # Don't add as predecessor, don't continue backward
+                
+                if self._is_element_type(source_elem, EXCLUSIVE_GATEWAY) and source_elem['name']:
                     pass
-                # Other gateways - skip and continue searching backward
-                elif 'gateway' in source_elem['type'].lower(): 
+                elif GATEWAY in source_elem['type'].lower(): 
                     q.append(source_id)
-                # Skip catch events - replace with their throw event
-                elif 'intermediateCatchEvent' in source_elem['type']:
-                    source_msg_id = next((k for k, v in self.parser.message_flows.items() if v == source_id), None)
-                    if source_msg_id:
-                        throw_elem = self._find_element_by_id(source_msg_id)
-                        if throw_elem:
-                            predecessors.append(throw_elem)
-                # Regular elements
+                elif self._is_element_type(source_elem, INTERMEDIATE_CATCH_EVENT):
+                    throw_elem = self._find_throw_event_for_catch(source_id)
+                    if throw_elem:
+                        predecessors.append(throw_elem)
                 else: 
                     predecessors.append(source_elem)
         return predecessors
@@ -789,7 +667,8 @@ class PrologTranslator:
         while q:
             curr_id = q.pop(0)
             curr_elem = process_data['elements'].get(curr_id)
-            if curr_elem and 'parallelGateway' in curr_elem['type'] and len(curr_elem['incoming']) > 1: return curr_id
+            if curr_elem and self._is_element_type(curr_elem, PARALLEL_GATEWAY) and len(curr_elem['incoming']) > 1:
+                return curr_id
             if curr_elem:
                 for f in curr_elem['outgoing']:
                     next_id = process_data['sequence_flows'][f]['target']
@@ -814,7 +693,8 @@ class PrologTranslator:
 
     def _is_in_subprocess(self, elem_id, process_data):
         for e in process_data['elements'].values():
-            if 'subProcess' in e['type'] and elem_id in e.get('contained_elements', []): return True
+            if SUBPROCESS in e['type'] and elem_id in e.get('contained_elements', []):
+                return True
         return False
 
     def _find_exception_completion_marker(self, proc_id):

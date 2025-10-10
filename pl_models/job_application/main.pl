@@ -1,6 +1,6 @@
-/* Job Application process MAIN file 
+/* Process MAIN file 
 
-    This file is the main file for the job application process. It
+    This file is the main file for the process. It
     loads the necessary files and starts the application.
 
     The application is a process simulator that is controlled by
@@ -34,7 +34,6 @@
 % Any port available would be ok for the EM.
 em_address(localhost, 8000).
 
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % ENVIRONMENTS/DEVICES TO LOAD
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -49,8 +48,6 @@ load_device(simulator, Host:Port, [pid(PID)]) :-
     logging(info(5, app), "Command to initialize device simulator: xterm -e ~w", [ARGS]),
     process_create(path(xterm), ARGS, [process(PID)]).
 
-
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % HOW TO EXECUTE ACTIONS: Environment + low-level Code
 %        how_to_execute(Action, Environment, Code)
@@ -59,7 +56,6 @@ how_to_execute(Action, simulator, sense(Action)) :-
     sensing_action(Action, _).
 how_to_execute(Action, simulator, Action) :-
     \+ sensing_action(Action, _).
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %   EXOGENOUS ACTION AND SENSING OUTCOME TRANSLATION
@@ -72,7 +68,6 @@ how_to_execute(Action, simulator, Action) :-
 translate_exog(ActionCode, Action) :- actionNum(Action, ActionCode), !.
 translate_exog(A, A).
 translate_sensing(_, SR, SR).
-
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % MAIN PREDICATE - evaluate this to run demo
@@ -95,7 +90,6 @@ main :-
     main(control(C)).
 
 main(C) :- assert(control(C)), indigolog(C).
-
 
 :- set_option(log_level, 2).
 :- set_option(log_level, em(1)).

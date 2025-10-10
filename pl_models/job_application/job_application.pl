@@ -48,7 +48,6 @@ causes_false(application_analysed(ID), waiting(ID, company), true).
 causes_false(application_finalised(ID), waiting(ID, applicant), true).
 causes_true(application_sent(ID), waiting(ID, company), true).
 causes_true(job_needed(ID), waiting(ID, applicant), true).
-causes_true(withdrawal_sent(ID), waiting(ID, company), true).
 rel_fluent(pool(P)) :- member(P, [applicant, company]).
 
 
@@ -177,7 +176,6 @@ poss(withdrawal_by_applicant(ID), and(pool(POOL), and(neg(done(application_analy
 exog_action(shut_down).
 poss(shut_down, and(neg(servers_stopped), neg(active_instances_check))).
 
-
 % ABBREVIATIONS
 proc(running(A1), and(done(A1), neg(done(A2)))) :-
   member(A1,
@@ -193,17 +191,15 @@ proc(running(A1), and(done(A1), neg(done(A2)))) :-
 proc(active_instances_check, some(id, some(pool, active(id, pool)))).
 
 
-/* TOP-LEVEL APPLICATION CONTROLLER
+/* TOP-LEVEL CONTROLLER
 
 The top level BPM process involves two process in priority:
-
 1. At the top level, run concurrently all participant servers/pools.
 2. If the servers are "stuck", just wait for exogenous actions to unblock them.
 */
 proc(control(bpmn_process), [prioritized_interrupts(
-    [
-      bpmn_process,
-      interrupt(neg(servers_stopped), ?(wait_exog_action))
+    [bpmn_process,
+     interrupt(neg(servers_stopped), ?(wait_exog_action))
     ])]).
 
 proc(bpmn_process, conc(server_applicant, server_company)).
@@ -211,9 +207,7 @@ proc(bpmn_process, conc(server_applicant, server_company)).
 
 /* SERVER FOR APPLICANT
 
-This implements a server for the applicant side process.
-
-It uses exogenous actions for the start event and to shut down the servers/pools.
+This implements a server for the applicant pool of the process model.
 */
 proc(server_applicant, iconc(pi(id, [acquire(id, applicant), handle_applicant(id)]))).
 
@@ -233,9 +227,7 @@ proc(handle_applicant(ID),
 
 /* SERVER FOR COMPANY
 
-This implements a server for the company side process.
-
-It uses exogenous actions for the start event and to shut down the servers/pools.
+This implements a server for the company pool of the process model.
 */
 proc(server_company, iconc(pi(id, [acquire(id, company), handle_company(id)]))).
 
@@ -262,7 +254,6 @@ proc(exog_actions,
 
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
 
-% simulate process BP under exogenous events
 proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
 
 proc(control(property_verification), search(property_verification)).
@@ -276,7 +267,6 @@ proc(property_verification,
   ]
 ).
 
-% Translations of domain actions to real actions (one-to-one)
 actionNum(X, X).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

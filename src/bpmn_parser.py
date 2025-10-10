@@ -1,11 +1,8 @@
 import xml.etree.ElementTree as ET
 import re
 
+
 class BPMNParser:
-    """
-    Parses a BPMN 2.0 XML file and creates an in-memory representation of its processes,
-    correctly handling the hierarchical structure of sub-processes.
-    """
     def __init__(self, filepath):
         self.filepath = filepath
         self.tree = ET.parse(filepath)
@@ -18,11 +15,9 @@ class BPMNParser:
         self._parse()
 
     def _clean_tag(self, tag):
-        """Removes the namespace from an XML tag."""
         return re.sub(r'\{.*?\}', '', tag)
 
     def _get_element_data_associations(self, elem_xml):
-        """Extracts data input and output associations from an XML element."""
         inputs, outputs = [], []
         for assoc in elem_xml.findall('bpmn:dataInputAssociation', self.ns):
             source_ref = assoc.find('bpmn:sourceRef', self.ns)
@@ -33,7 +28,6 @@ class BPMNParser:
         return inputs, outputs
 
     def _parse_elements_recursively(self, parent_xml, element_dict):
-        """Recursively parses BPMN elements to capture hierarchy."""
         contained_elements = []
         for elem_xml in parent_xml:
             tag = self._clean_tag(elem_xml.tag)
@@ -42,8 +36,6 @@ class BPMNParser:
                 continue
             
             contained_elements.append(elem_id)
-
-            # Store data object references separately
             if tag == 'dataObjectReference':
                 self.data_objects[elem_id] = {'name': elem_xml.get('name')}
                 continue
@@ -64,15 +56,13 @@ class BPMNParser:
                 'parent_id': parent_xml.get('id')
             }
 
-            if tag == 'subProcess':
-                # Recursively parse children of the sub-process
+            if tag == 'subProcess': # Recursively parse children of the sub-process
                 element_info['contained_elements'] = self._parse_elements_recursively(elem_xml, element_dict)
 
             element_dict[elem_id] = element_info
         return contained_elements
 
     def _parse(self):
-        """Main parsing function."""
         for participant in self.root.findall('.//bpmn:participant', self.ns):
             p_id = participant.get('id')
             self.participants[p_id] = {'name': participant.get('name'), 'processRef': participant.get('processRef')}

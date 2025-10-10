@@ -1,82 +1,129 @@
-"""
-Reasoning Service Module
-
-This module provides a clean API for all reasoning tasks over IndiGolog BPMN translations,
-wrapping the IndiGologReasoner functionality and providing a simple interface for the UI.
-"""
-
+import re
 from reason import IndiGologReasoner, parse_action_list
 
 
 class ReasoningService:
-    """Service class for reasoning tasks over IndiGolog translations."""
-    
+    REASONING_TASKS = {
+        'projection': {
+            'name': 'Projection',
+            'description': 'Check what would be true after executing a sequence of actions',
+            'parameters': [
+                {'name': 'fluent_name', 'type': 'text', 'label': 'Fluent Name', 'placeholder': 'e.g., application(1)'},
+                {'name': 'actions', 'type': 'text', 'label': 'Action Sequence (comma-separated)', 'placeholder': 'e.g., job_needed(1),acquire(1,applicant)'},
+                {'name': 'expected_value', 'type': 'dropdown', 'label': 'Expected Value', 'choices': ['true', 'false']}
+            ]
+        },
+        'legality': {
+            'name': 'Legality Check',
+            'description': 'Verify if a sequence of actions is executable (all preconditions satisfied)',
+            'parameters': [
+                {'name': 'actions', 'type': 'text', 'label': 'Action Sequence (comma-separated)', 'placeholder': 'e.g., job_needed(1),prepare_application(end,1)'}
+            ]
+        },
+        'execute': {
+            'name': 'Process Execution',
+            'description': 'Execute the full BPMN process',
+            'parameters': []
+        },
+        'conformance': {
+            'name': 'Conformance Checking',
+            'description': 'Verify if an execution history conforms to the process specification. Enter actions in chronological order (first to last).',
+            'parameters': [
+                {'name': 'history_actions', 'type': 'text', 'label': 'History Actions (comma-separated, chronological order)', 'placeholder': 'e.g., job_needed(1), prepare_application(start,1), prepare_application(end,1)'}
+            ]
+        },
+        'verify': {
+            'name': 'Property Verification',
+            'description': 'Verify specific properties over the entire process execution. Enter conditions as comma-separated expressions.',
+            'parameters': [
+                {'name': 'property', 'type': 'text', 'label': 'Property Conditions (comma-separated)', 'placeholder': 'e.g., signed_contract(id), not(done(application_finalised(id)))'}
+            ]
+        }
+    }
+        
     @staticmethod
     def _extract_clean_result(full_output):
-        """
-        Extract a clean result message from the Prolog output.
-        
-        Args:
-            full_output: The full output from Prolog execution
-        
-        Returns:
-            str: A clean, user-friendly result message with relevant details
-        """
         lines = full_output.split('\n')
         result_parts = []
         
-        # Check for specific errors
-        if 'eaddrinuse' in full_output or 'Address already in use' in full_output:
-            return ("❌ ERROR: Port already in use\n\n"
-                   "The Environment Manager port (8000) is still in use from a previous execution.\n"
-                   "This happens when a previous reasoning task didn't shut down properly.\n\n"
-                   "The system will now attempt cleanup. Please try again in a moment.")
+        # Check what type of task this is based on final status messages
+        is_projection = any('Query evaluation:' in line for line in lines)
+        is_legality = any('Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line) for line in lines)
         
-        # Extract RESULT line
-        result_line = None
-        for line in lines:
-            if 'RESULT:' in line:
-                result_line = line.strip()
-                result_parts.append(result_line)
+        # For projection queries, show the actual query result (TRUE/FALSE)
+        if is_projection:
+            for line in lines:
+                if 'Query evaluation:' in line:
+                    # Extract TRUE or FALSE
+                    if 'TRUE' in line:
+                        result_parts.append("Query result: TRUE")
+                    else:
+                        result_parts.append("Query result: FALSE")
+                    result_parts.append('-' * 70)
+                    result_parts.append('')
+                    break
+        # For legality checks, use the final status line (EXECUTABLE/NOT EXECUTABLE)
+        elif is_legality:
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('✓') or stripped.startswith('✗'):
+                    if 'Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line):
+                        # Extract just the message without the emoji
+                        if 'NOT EXECUTABLE' in line:
+                            result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal)")
+                        else:
+                            result_parts.append("RESULT: Action sequence is EXECUTABLE (legal)")
+                        result_parts.append('-' * 70)
+                        result_parts.append('')
+                        break
+        else:
+            # For other tasks, use the standard RESULT: line
+            result_line = None
+            for line in lines:
+                if 'RESULT:' in line:
+                    result_line = line.strip()
+                    result_parts.append(result_line)
+                    break
+            
+            if result_line:
+                result_parts.append('-' * 70)
+                result_parts.append('')
+        
+        extracted_history_start = -1
+        extracted_history_end = -1
+        
+        # First pass: look for EXTRACTED EXECUTION HISTORY
+        for i, line in enumerate(lines):
+            if 'EXTRACTED EXECUTION HISTORY' in line:
+                # The opening border should be before this title line
+                # Then there's another border line after the title
+                # Look for: i-1 is border, i is title, i+1 is border, then content, then closing border
+                if i > 0 and '=' in lines[i-1] and len(lines[i-1].strip()) > 10:
+                    extracted_history_start = i - 1
+                    # Skip the separator line (i+1) and look for closing border
+                    border_count = 0
+                    for j in range(i + 1, min(i + 30, len(lines))):
+                        if '=' in lines[j] and len(lines[j].strip()) > 10:
+                            border_count += 1
+                            if border_count == 2:  # First is separator, second is closing
+                                extracted_history_end = j
+                                break
                 break
         
-        # Add separator after result
-        if result_line:
-            result_parts.append('-' * 70)
-            result_parts.append('')
-        
-        # Extract execution history section - look for both formats
-        # Format 1: EXECUTION HISTORY (Action Sequence): with ========================================
-        # Format 2: EXTRACTED EXECUTION HISTORY with ======================================================================
-        in_history_section = False
-        history_lines = []
-        border_count = 0
-        
-        for i, line in enumerate(lines):
-            # Detect start of history section
-            if not in_history_section:
-                if '========' in line:
-                    # Look ahead to see if next line has history-related keywords
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1]
-                        if 'EXECUTION HISTORY' in next_line or 'EXTRACTED EXECUTION HISTORY' in next_line:
-                            in_history_section = True
-                            history_lines.append('=' * 70)
-                            border_count = 1
-                            continue
-            else:
-                # We're in the history section
-                if '========' in line:
-                    # This is the closing border
-                    history_lines.append('=' * 70)
-                    in_history_section = False
-                    break
-                else:
-                    # Include all content lines (including empty ones for spacing)
-                    history_lines.append(line.rstrip())
-        
-        if history_lines and len(history_lines) > 2:  # Only add if we have actual content
-            result_parts.extend(history_lines)
+        # If we found the extracted history section, use it
+        if extracted_history_start >= 0 and extracted_history_end > extracted_history_start:
+            result_parts.append('=' * 70)
+            result_parts.append('EXECUTION HISTORY')
+            result_parts.append('=' * 70)
+            # Content starts after title line (i+1) which is a separator border, so actual content is at i+2
+            # extracted_history_start is line i-1 (opening border)
+            # Title is at extracted_history_start + 1
+            # Separator border is at extracted_history_start + 2
+            # Content starts at extracted_history_start + 3
+            for i in range(extracted_history_start + 3, extracted_history_end):
+                line_content = lines[i].rstrip()
+                result_parts.append(line_content)
+            result_parts.append('=' * 70)
             result_parts.append('')
         
         # Extract conformance checking details
@@ -99,13 +146,14 @@ class ReasoningService:
                     result_parts.append('')
                 break
         
-        # Extract final status indicator
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith('✓') or stripped.startswith('✗'):
-                if any(keyword in line for keyword in ['Process execution', 'History is', 'Action sequence is', 'COMPLETED', 'CONFORMANT']):
-                    result_parts.append(stripped)
-                    break
+        # Extract final status indicator (but not for projection/legality as they're already handled)
+        if not is_projection and not is_legality:
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith('✓') or stripped.startswith('✗'):
+                    if any(keyword in line for keyword in ['Process execution', 'History is', 'COMPLETED', 'CONFORMANT']):
+                        result_parts.append(stripped)
+                        break
         
         # If we have collected parts, join them
         if result_parts:
@@ -127,59 +175,12 @@ class ReasoningService:
         
         return "Task completed"
     
-    # Define available reasoning tasks with their required parameters
-    REASONING_TASKS = {
-        'projection': {
-            'name': 'Projection',
-            'description': 'Check what would be true after executing a sequence of actions',
-            'parameters': [
-                {'name': 'fluent_name', 'type': 'text', 'label': 'Fluent Name', 'placeholder': 'e.g., door_open'},
-                {'name': 'actions', 'type': 'text', 'label': 'Action Sequence (comma-separated)', 'placeholder': 'e.g., open,close,open'},
-                {'name': 'expected_value', 'type': 'dropdown', 'label': 'Expected Value', 'choices': ['true', 'false']}
-            ]
-        },
-        'legality': {
-            'name': 'Legality Check',
-            'description': 'Verify if a sequence of actions is executable (all preconditions satisfied)',
-            'parameters': [
-                {'name': 'actions', 'type': 'text', 'label': 'Action Sequence (comma-separated)', 'placeholder': 'e.g., job_needed(1),prepare_application(end,1)'},
-                {'name': 'proc_name', 'type': 'text', 'label': 'Procedure Name (optional)', 'placeholder': 'legality_check', 'default': 'legality_check'}
-            ]
-        },
-        'execute': {
-            'name': 'Process Execution',
-            'description': 'Execute the full BPMN process (uses controller 1 which corresponds to bpmn_process)',
-            'parameters': []
-        },
-        'conformance': {
-            'name': 'Conformance Checking',
-            'description': 'Verify if an execution history conforms to the process specification. Enter actions in chronological order (first to last).',
-            'parameters': [
-                {'name': 'history_actions', 'type': 'text', 'label': 'History Actions (comma-separated, chronological order)', 'placeholder': 'e.g., job_needed(1), prepare_application(start,1), prepare_application(end,1)'}
-            ]
-        },
-        'verify': {
-            'name': 'Property Verification',
-            'description': 'Execute a reasoning task procedure to verify a specific property. Enter conditions as comma-separated expressions.',
-            'parameters': [
-                {'name': 'property', 'type': 'text', 'label': 'Property Conditions (comma-separated)', 'placeholder': 'e.g., signed_contract(id), not(done(application_finalised(id)))'}
-            ]
-        }
-    }
-    
     def __init__(self, model_name):
-        """
-        Initialize the reasoning service for a specific model.
-        
-        Args:
-            model_name: The name of the BPMN model
-        """
         self.model_name = model_name
         self.reasoner = None
         self._initialize_reasoner()
     
     def _initialize_reasoner(self):
-        """Initialize the IndiGolog reasoner."""
         try:
             self.reasoner = IndiGologReasoner(self.model_name)
             return True, "Reasoner initialized successfully"
@@ -189,25 +190,9 @@ class ReasoningService:
             return False, f"Error initializing reasoner: {str(e)}"
     
     def get_available_tasks(self):
-        """
-        Get the list of available reasoning tasks.
-        
-        Returns:
-            dict: Dictionary of task IDs to task information
-        """
         return self.REASONING_TASKS
     
     def execute_task(self, task_id, parameters):
-        """
-        Execute a reasoning task with the given parameters.
-        
-        Args:
-            task_id: The ID of the task to execute (e.g., 'projection', 'legality')
-            parameters: Dictionary of parameter names to values
-        
-        Returns:
-            tuple: (success: bool, clean_output: str)
-        """
         if not self.reasoner:
             success, msg = self._initialize_reasoner()
             if not success:
@@ -219,27 +204,34 @@ class ReasoningService:
         try:
             if task_id == 'projection':
                 success, full_output = self._execute_projection(parameters)
+                # For projection, the task always succeeds - success=False just means query result was FALSE
+                # The actual result (TRUE/FALSE) is shown in the extracted output
+                task_success = True
             elif task_id == 'legality':
                 success, full_output = self._execute_legality(parameters)
+                # For legality, the task always succeeds - success=False just means sequence not executable
+                # The actual result (EXECUTABLE/NOT EXECUTABLE) is shown in the extracted output
+                task_success = True
             elif task_id == 'execute':
-                success, full_output = self._execute_process(parameters)
+                success, full_output = self._execute_process()
+                task_success = success
             elif task_id == 'conformance':
                 success, full_output = self._execute_conformance(parameters)
+                task_success = success
             elif task_id == 'verify':
                 success, full_output = self._execute_verify(parameters)
+                task_success = success
             else:
                 return False, f"Task {task_id} not implemented"
             
-            # Extract clean result
-            #clean_result = self._extract_clean_result(full_output)
-            clean_result = full_output
-            return success, clean_result
+            clean_result = self._extract_clean_result(full_output)
+            #clean_result = full_output
+            return task_success, clean_result
         
         except Exception as e:
             return False, f"Error executing task: {str(e)}"
     
     def _execute_projection(self, params):
-        """Execute projection task."""
         fluent_name = params.get('fluent_name', '').strip()
         actions_str = params.get('actions', '').strip()
         expected_value = params.get('expected_value', 'true').strip()
@@ -249,73 +241,39 @@ class ReasoningService:
         if not actions_str:
             return False, "Action sequence is required"
         
-        # Parse action list
         actions = parse_action_list(actions_str)
-        
-        # Execute projection
         return self.reasoner.projection(fluent_name, actions, expected_value)
     
     def _execute_legality(self, params):
-        """Execute legality check task."""
         actions_str = params.get('actions', '').strip()
         proc_name = params.get('proc_name', 'legality_check').strip()
         
         if not actions_str:
             return False, "Action sequence is required"
         
-        # Parse action list
         actions = parse_action_list(actions_str)
-        
-        # Execute legality check
         return self.reasoner.legality(proc_name, actions)
     
-    def _execute_process(self, params):
-        """Execute process execution task."""
-        # Always use controller 1 (bpmn_process controller)
+    def _execute_process(self):
         controller_number = 1
-        
-        # Execute process
         return self.reasoner.execute_process(controller_number)
     
     def _execute_conformance(self, params):
-        """Execute conformance checking task.
-        
-        Note: User enters actions in chronological order (first to last),
-        but the underlying Prolog script expects them in reverse order (last to first).
-        This method handles the reversal automatically.
-        """
         history_str = params.get('history_actions', '').strip()
-        
         if not history_str:
             return False, "History actions are required"
         
-        # Parse action list (user provides chronological order: first -> last)
         history_actions = parse_action_list(history_str)
-        
-        # Reverse the list for Prolog (expects: last -> first)
-        # The Prolog conformance check query uses the list in reverse chronological order
         reversed_history = list(reversed(history_actions))
-        
-        # Execute conformance check with reversed history
         return self.reasoner.conformance_checking(reversed_history)
     
     def _execute_verify(self, params):
-        """Execute property verification task."""
         property_str = params.get('property', '').strip()
-        
         if not property_str:
             return False, "Property conditions are required"
         
-        # Always use the default procedure name
         proc_name = 'property_verification'
-        
-        # Convert 'not(' to 'neg(' to respect IndiGolog syntax
-        # Use regex to handle all occurrences, including nested ones
-        import re
         property_str = re.sub(r'\bnot\s*\(', 'neg(', property_str)
-        
-        # Parse comma-separated conditions and convert to Prolog 'and' syntax
-        # Split by comma but respect parentheses (similar to parse_action_list)
         conditions = []
         current_condition = ""
         paren_depth = 0
@@ -334,20 +292,16 @@ class ReasoningService:
             else:
                 current_condition += char
         
-        # Don't forget the last condition
-        if current_condition.strip():
+        if current_condition.strip(): # Last condition
             conditions.append(current_condition.strip())
         
-        # Build the Prolog property expression with nested 'and' predicates
-        if len(conditions) == 0:
+        if len(conditions) == 0:   # Build the Prolog property with nested 'and'
             return False, "At least one condition is required"
         elif len(conditions) == 1:
             property_expr = conditions[0]
         else:
-            # Build nested and(...) structure: and(cond1, and(cond2, and(cond3, ...)))
             property_expr = conditions[-1]
             for cond in reversed(conditions[:-1]):
                 property_expr = f"and({cond}, {property_expr})"
         
-        # Execute property verification
         return self.reasoner.verify_property(property_expr, proc_name)

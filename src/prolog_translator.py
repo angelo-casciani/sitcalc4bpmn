@@ -19,15 +19,22 @@ class PrologTranslator:
     def _prologify(self, name):
         if not name: return ""
         s = name.lower()
+        # Replace spaces and hyphens with underscores
         s = re.sub(r'[\s-]+', '_', s)
-        s = re.sub(r'[?\'"]', '', s)
+        # Remove or replace invalid Prolog atom characters
+        # Valid Prolog atom chars: letters, digits, underscore
+        # Remove: ?, ', ", !, @, #, $, %, ^, *, +, =, ~, `, |, \, /, :, ;, <, >, &, (, ), [, ], {, }, ,, .
+        s = re.sub(r'[?\'\"!@#$%^*+=~`|\\/:;<>&\(\)\[\]{},.]', '', s)
         if s.startswith('send_'):
             s = s.replace('send_', '', 1) + '_sent'
+        # Ensure the result is a valid Prolog atom (starts with lowercase letter or underscore)
+        if s and not (s[0].islower() or s[0] == '_'):
+            s = '_' + s
         return s
     
     def _is_element_type(self, elem, element_type):
-        """Check if an element matches a specific type."""
-        return elem and element_type in elem.get('type', '')
+        """Check if an element matches a specific type (case-insensitive)."""
+        return elem and element_type.lower() in elem.get('type', '').lower()
     
     def _is_message_catch(self, elem_id):
         """Check if an element is a message catch event (target of a message flow)."""

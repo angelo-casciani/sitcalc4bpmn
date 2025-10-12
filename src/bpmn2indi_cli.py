@@ -21,7 +21,20 @@ def main():
         script_dir = os.path.dirname(os.path.realpath(__file__))
         bpmn_name = args.bpmn_name
 
-        bpmn_file_path = os.path.join(script_dir, '..', 'models', f"{bpmn_name}.bpmn")
+        models_dir = os.path.join(script_dir, '..', 'models')
+        possible_extensions = ['.bpmn', '.bpmn2.xml', '.xml']
+        bpmn_file_path = None
+        
+        for ext in possible_extensions:
+            candidate_path = os.path.join(models_dir, f"{bpmn_name}{ext}")
+            if os.path.exists(candidate_path):
+                bpmn_file_path = candidate_path
+                break
+        
+        if bpmn_file_path is None:
+            print(f"Error: No BPMN file found for '{bpmn_name}' with extensions {possible_extensions}")
+            print(f"Searched in: {models_dir}")
+            sys.exit(1)
         
         pl_model_dir = os.path.join(script_dir, '..', 'pl_models', bpmn_name)
         os.makedirs(pl_model_dir, exist_ok=True)

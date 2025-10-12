@@ -85,6 +85,17 @@ class BPMNParser:
                 'elements': elements,
                 'sequence_flows': sequence_flows
             }
+        
+        # If no participants/collaboration exist, create default participants for each process
+        if not self.participants:
+            for process_id in self.processes.keys():
+                participant_id = f"participant_{process_id}"
+                # Use process name if available, otherwise use a default name
+                process_name = f"pool_{process_id}"
+                self.participants[participant_id] = {
+                    'name': process_name,
+                    'processRef': process_id
+                }
             
     def get_participant_by_process_id(self, process_id):
         for p_info in self.participants.values():

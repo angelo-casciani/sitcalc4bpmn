@@ -56,11 +56,15 @@ class BPMNIndiGologUI:
         success, content = self.translator.get_translated_prolog(model_name)
         if success:
             self.current_model = model_name
-            bpmn_path = os.path.join("models", f"{model_name}.bpmn")
-            if os.path.exists(bpmn_path):
-                self.current_bpmn_path = bpmn_path
-            else:
-                self.current_bpmn_path = None
+            # Try multiple file extensions for BPMN visualization
+            possible_extensions = ['.bpmn', '.bpmn2.xml', '.xml']
+            self.current_bpmn_path = None
+            
+            for ext in possible_extensions:
+                bpmn_path = os.path.join("models", f"{model_name}{ext}")
+                if os.path.exists(bpmn_path):
+                    self.current_bpmn_path = bpmn_path
+                    break
             
             success_msg = f"✅ Model loaded successfully!\n\nModel: {model_name}\nReady for reasoning tasks."
             return success_msg, content, model_name, gr.update(visible=True), gr.update(visible=True)

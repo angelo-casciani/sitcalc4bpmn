@@ -62,11 +62,6 @@ Six powerful reasoning capabilities:
 5. *Property Verification*: Execute custom reasoning tasks to verify process properties
 6. *Interactive Mode*: Start a Prolog REPL with the model loaded for manual queries
 
-**Additional Features:**
-- Smart action parsing that handles complex action arguments with nested parentheses
-- Timing statistics (inferences and CPU time) for all reasoning tasks
-- Proper exit codes for CI/CD integration
-
 ## Quick Start
 
 ### Prerequisites

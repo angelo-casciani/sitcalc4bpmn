@@ -1,15 +1,15 @@
-# SitCalc4BPMN
+# Case Study Formalization
 
 This is the formalization of the case study proposed in the paper "Enabling Formal Reasoning in Business Processes: A Situation Calculus and ConGolog Semantics for BPMN". It features a BPMN business process for a job application, formalized using Situation Calculus and ConGolog, and implemented utilizing IndiGolog.
 
-The process executes in a simulated environment via the simulator device manager `dev/env_sim.pl`. The simulator includes a simple TCLK/TK where the user can issue exogenous actions:
-
-```prolog
+The process executes in a simulated environment via the simulator device manager `dev/env_sim.pl`. The simulator includes a simple TCLK/TK where the user can issue exogenous actions, following the structure below:
 - `job_needed(<id>)`: start event for the application process by applicant <id>.
-- `<task_name>_end(<id>,...)`: exogenous action to conclude a durative task, which can take data objects as additional parameters.
+- `<task_name>(end,<id>,...)`: exogenous action to conclude a durative task, which can take data objects as additional parameters.
 - `withdrawal_by_applicant(<id>)`: withdrawal of the application by applicant <id>.
 - `shut_down`: used to stop the pools' servers.
-```
+
+
+The complete list of exogenous events that can be issued is reported in section [Case Study: Job Application BPMN](#case-study-job-application-bpmn).
 
 The `end_indi` exogenous actions will finish the execution smoothly.
 
@@ -30,7 +30,7 @@ Move the files in the src folder within this repository in the examples folder o
 Then, from the main Indigolog folder, consult the application as follows:
 
 ```shell
-$ swipl config.pl examples/job_bpmn/main.pl
+$ swipl config.pl examples/case_study/main.pl
 ```
 
 This will load the domain specification, but also the whole INDIGOLOG architecture (interpreter, temporal projector, devices, libraries, etc.)
@@ -90,14 +90,14 @@ true .
 
 Here both SWI-Prolog and INDIGOLOG are working! 👍
 
-## Job Application BPMN
+## Case Study: Job Application BPMN
 
 We are assuming the INDIGOLOG system has been cloned into `indigolog/` folder.
 
-To run online the Job Application BPMN:
+To run online the Job Application BPMN case study:
 
 ```shell
-$ swipl indigolog/config.pl examples/job_bpmn/main.pl
+$ swipl indigolog/config.pl examples/case_study/main.pl
 SYSTEM(0): Debug level set to 5
 SYSTEM(0): Debug level for module em set to 1
 INFO(0): Set wait-at-action enable to: 1 seconds.
@@ -116,7 +116,7 @@ Controllers available: [bpmn_process]
 Select controller: 1.
 ```
 
-To execute the process, the following exogenous events are needed for the happy path in the case of application "1":
+To execute the process, the following exogenous events are needed for the happy path in the case of application `1`:
 ```
 job_needed(1)
 prepare_application(end,1)
@@ -155,13 +155,16 @@ process_withdrawal(end,1)
 
 These are the queries for the reasoning tasks:
 
+First, initialize the evaluator:
 ```prolog
-$ swipl indigolog/config.pl examples/job_bpmn/main.pl
+$ swipl indigolog/config.pl examples/case_study/main.pl
 
 ?- initialize(evaluator).
 true.
+```
 
-% CONFORMANCE CHECKING
+#### Conformance Checking
+```prolog
 ?- time((H1 = [execute_interview(end, 1, true), execute_interview(start, 1), plan_interview(end, 1), plan_interview(start, 1), check_application_for_interview(end, 1, true), check_application_for_interview(start, 1), assign_contact_partner(end, 1), verify_prerequisites(end, 1), verify_prerequisites(start, 1), assign_contact_partner(start, 1), organize_documents(end, 1), organize_documents(start, 1), check_validity(end, 1, true), check_validity(start, 1), acquire(1, company), application_sent(1), prepare_application(end, 1), prepare_application(start, 1), acquire(1, applicant), job_needed(1)], proc(sim(bpmn_process), E), trans_star(E, [], _, H1))).
 % 203,521 inferences, 0.023 CPU in 0.023 seconds (100% CPU, 8910073 Lips)
 H1 = [execute_interview(end, 1, true), execute_interview(start, 1), plan_interview(end, 1), plan_interview(start, 1), check_application_for_interview(end, 1, true), check_application_for_interview(start, 1), assign_contact_partner(end, 1), verify_prerequisites(end, 1), verify_prerequisites(..., ...)|...],
@@ -178,9 +181,11 @@ E = conc([bpmn_process, end_bpm], exog_actions),
 H1 = [execute_interview(end, 1, true), execute_interview(start, 1), plan_interview(end, 1), plan_interview(start, 1), check_application_for_interview(end, 1, true), check_application_for_interview(start, 1), assign_contact_partner(end, 1), verify_prerequisites(end, 1), verify_prerequisites(..., ...)|...],
 H3 = [check_validity(end, 1, false), check_validity(start, 1), acquire(1, company), application_sent(1), prepare_application(end, 1), prepare_application(start, 1), acquire(1, applicant), job_needed(1)],
 A = organize_documents(start, 1)
+```
 
-% VERIFICATION OF PROPERTY
-?- time(do(reasoning_task, [], H)).
+#### Property Verification
+```prolog
+?- time(do(property_verification, [], H)).
 % 21,914,474 inferences, 0.812 CPU in 0.813 seconds (100% CPU, 26971717 Lips)
 H = [end_bpm, withdrawal_handled(1), process_withdrawal(end, 1), process_withdrawal(start, 1), withdrawal_completed(1), withdrawal_sent(1), confirm_withdrawal(end, 1), confirm_withdrawal(start, 1), withdrawal_by_applicant(...)|...] .
 ```

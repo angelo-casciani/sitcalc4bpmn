@@ -412,12 +412,12 @@ proc(exog_actions,
 
 
 proc(exog_action, pi(a, [?(and(exog_action(a), neg(system_action(a)))), a])).
-proc(control(reasoning_task), search(reasoning_task)).
+proc(control(property_verification), search(property_verification)).
 
 % simulate process BP under exogenous events
 proc(sim(BP), conc([BP, end_bpmn], exog_actions)).
 
-proc(reasoning_task,
+proc(property_verification,
   [
     conc([bpmn_process, end_bpmn], exog_actions),
     ?(some([id],

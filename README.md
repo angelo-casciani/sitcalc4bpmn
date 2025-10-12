@@ -1,47 +1,46 @@
 # sitcalc4bpmn
 
-A comprehensive tool for translating BPMN (Business Process Model and Notation) models to IndiGolog processes and performing formal reasoning tasks over them using the Situation Calculus.
+A software suite for translating [BPMN](https://www.bpmn.org/) (Business Process Model and Notation) models to [IndiGolog](https://github.com/ai-krml-uoft/indigolog) processes and performing formal reasoning tasks over them using the *Situation Calculus* and *ConGolog*.
 
 ## Overview
 
 This project provides a complete pipeline from BPMN models to formal reasoning:
-- **Translation**: Convert BPMN XML files to IndiGolog/Prolog representations
-- **Reasoning**: Perform various reasoning tasks (projection, legality checking, conformance, property verification, execution) over the translated models
-- **Execution**: Run BPMN processes with exogenous event handling
-- **Web UI**: User-friendly Gradio interface for translation and reasoning
+- **Translation**: Convert BPMN XML files to IndiGolog representations.
+- **Reasoning**: Perform various reasoning tasks (projection, legality checking, conformance, property verification, execution) over the translated models.
+- **Execution**: Run BPMN processes with exogenous event handling.
+- **Web UI**: User-friendly Gradio interface for translation and reasoning.
 
 ## Project Structure
 
 ```
 sitcalc4bpmn/
 ├── src/
-│   ├── main.py              # BPMN to IndiGolog translator
-│   ├── reason.py            # Reasoning task executor (6 tasks)
-│   ├── bpmn_parser.py       # BPMN XML parser
-│   ├── prolog_translator.py # Prolog code generator
-│   └── prolog_templates.py  # Prolog code templates
-├── models/                   # Input BPMN files (.bpmn)
-├── pl_models/               # Generated IndiGolog translations
+│   ├── bpmn_parser.py         # BPMN XML parser
+│   ├── bpmn2indi_cli.py       # BPMN to IndiGolog CLI translator
+│   ├── prolog_templates.py    # Template for the IndiGolog code generation
+│   ├── prolog_translator.py   # Prolog translator to generate IndiGolog code from the parsed BPMN information
+│   ├── reason.py              # Reasoning task executor
+│   ├── reasoning_service.py   # Support code for reasoning
+│   ├── translator_service.py  # Support code for translation
+│   └── ui.py                  # Entry point for the GUI
+├── models/                    # Input BPMN files
+├── pl_models/                 # Generated IndiGolog translations
+|   ├── case_study/            # BPMN and IndiGolog encoding of the case study
 │   └── <model_name>/
-│       ├── <model_name>.pl  # Translated process (fluents, actions, BAT)
-│       └── main.pl          # Main IndiGolog loader
-├── indigolog/               # IndiGolog framework (submodule)
-│   ├── config.pl            # Framework configuration
-│   ├── interpreters/        # ConGolog interpreters
-│   ├── eval/                # Reasoning engines (eval, trans_star, do)
-│   ├── devices/             # Device managers (simulator with Tkinter GUI)
-│   └── lib/                 # Utility libraries
-└── README.md                # This file
+│       ├── <model_name>.pl    # Process encoding
+│       └── main.pl            # Main IndiGolog loader
+├── indigolog/                 # IndiGolog (submodule)
+└── README.md                  # This file
 ```
 
 ## Features
 
 ### Web-Based User Interface (`src/ui.py`)
 An intuitive web interface for:
-- **Upload & Translate**: Drag-and-drop BPMN files and translate them to IndiGolog
-- **View Translation**: Display generated Prolog code with syntax highlighting
-- **Load Models**: Access previously translated models
-- **Reasoning Tasks**: Execute all reasoning tasks with dynamic parameter inputs
+- *Upload & Translate*: Drag-and-drop BPMN files and translate them to IndiGolog
+- *View Translation*: Display generated Prolog code with syntax highlighting
+- *Load Models*: Access previously translated models
+- *Reasoning Tasks*: Execute all reasoning tasks with dynamic parameter inputs
   - Projection, Legality, Execution, Conformance, Property Verification
   - Clear parameter descriptions and validation
   - Output display
@@ -56,12 +55,12 @@ Parse BPMN XML files and generate IndiGolog Prolog code with:
 ### Reasoning (`src/reason.py`)
 Six powerful reasoning capabilities:
 
-1. **Projection Task**: Determine what fluents hold after a sequence of actions
-2. **Legality/Executability Check**: Verify if an action sequence is executable (all preconditions satisfied)
-3. **Process Execution**: Execute the whole BPMN process with exogenous events and capture execution history
-4. **Conformance Checking**: Verify if an execution history conforms to the process specification
-5. **Property Verification**: Execute custom reasoning tasks to verify process properties
-6. **Interactive Mode**: Start a Prolog REPL with the model loaded for manual queries
+1. *Projection Task*: Determine what fluents hold after a sequence of actions
+2. *Legality/Executability Check*: Verify if an action sequence is executable (all preconditions satisfied)
+3. *Process Execution*: Execute the whole BPMN process with exogenous events and capture execution history
+4. *Conformance Checking*: Verify if an execution history conforms to the process specification
+5. *Property Verification*: Execute custom reasoning tasks to verify process properties
+6. *Interactive Mode*: Start a Prolog REPL with the model loaded for manual queries
 
 **Additional Features:**
 - Smart action parsing that handles complex action arguments with nested parentheses
@@ -71,26 +70,36 @@ Six powerful reasoning capabilities:
 ## Quick Start
 
 ### Prerequisites
-- Python 3.x
-- SWI-Prolog 8.x+ (`sudo apt-get install swi-prolog` on Ubuntu/Debian)
-- IndiGolog framework (included as submodule)
+- Python (>=v.3.10.12)
+- SWI-Prolog (>=v.8.4.2) (`sudo apt-get install swi-prolog` on Ubuntu/Debian)
+- [IndiGolog](https://github.com/ai-krml-uoft/indigolog) (included as submodule)
 
-### Installation
-
-1. Clone the repository:
+### 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/angelo-casciani/sitcalc4bpmn
 cd sitcalc4bpmn
 ```
 
-2. Install Python dependencies:
+### 2. Create a Virtual Environment
+
+Assuming a working version of Python installed on the machine, create a virtual environment in the root folder of the project.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install Python Dependencies
+
+Run the following command to install the necessary packages along with their dependencies in the `requirements.txt` file using `pip`:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ## Using the Web UI (Recommended)
 
-The easiest way to use the tool is through the web interface:
+The easiest way to use the suite is through the web interface:
 
 ```bash
 python src/ui.py
@@ -98,23 +107,21 @@ python src/ui.py
 
 This will start a local web server (default: http://127.0.0.1:7860) and open the interface in your browser.
 
-> **Note:** For command-line usage and detailed examples, see the [Command Reference](#command-reference) section below.
-
 ### Web UI Features:
 
-1. **Translation Tab**: Upload BPMN files and translate them to IndiGolog
-   - Drag and drop .bpmn or .xml files
-   - Specify a model name
-   - View the generated Prolog code with syntax highlighting
+1. **Translation Tab**: Upload BPMN files and translate them to IndiGolog.
+   - Drag and drop .bpmn or .xml files.
+   - Specify a model name.
+   - View the generated Prolog code with syntax highlighting.
 
-2. **Load Existing Model Tab**: Access previously translated models
-   - Select from a dropdown of available models
-   - View the translated code
+2. **Load Existing Model Tab**: Access previously translated models.
+   - Select from a dropdown of available models.
+   - View the translated code.
 
-3. **Reasoning Tasks Tab**: Execute reasoning over your models
-   - Select a reasoning task (projection, legality, etc.)
-   - Input parameters dynamically based on the selected task
-   - View results in real-time
+3. **Reasoning Tasks Tab**: Execute reasoning over your models.
+   - Select a reasoning task (projection, legality, etc.).
+   - Input parameters dynamically adapted on the selected task.
+   - View the results.
 
 ## Command-Line Usage
 
@@ -136,7 +143,7 @@ This reads `models/job_application.bpmn` and generates:
 ### 2. Perform Reasoning Tasks
 
 #### Projection Task
-Determine if a fluent has a specific value after executing actions.
+Determine if a fluent has a specific value after executing a certain sequence of actions.
 
 ```bash
 python src/reason.py <model_name> projection \
@@ -145,15 +152,17 @@ python src/reason.py <model_name> projection \
     --expected <true|false>
 ```
 
-**Examples:**
+Examples:
+Check if `application(1)` is true after preparing application (i.e., if an application object was created for process instance `1`):
 ```bash
-# Check if application(1) is true after preparing application
 python src/reason.py job_application projection \
     --fluent "application(1)" \
     --actions "job_needed(1),prepare_application(end,1)" \
     --expected true
+```
 
-# Check if waiting(1,applicant) is true after job_needed
+Check if waiting(1,applicant) is true after job_needed:
+```bash
 python src/reason.py job_application projection \
     --fluent "waiting(1,applicant)" \
     --actions "job_needed(1)" \
@@ -169,13 +178,13 @@ python src/reason.py <model_name> legality \
     [--proc-name <procedure_name>]
 ```
 
-**Examples:**
+Examples:
 ```bash
-# Legal action (returns exit code 0)
+# Legal action
 python src/reason.py job_application legality \
     --actions "job_needed(1)"
 
-# Illegal action - fails because preconditions aren't met (returns exit code 1)
+# Illegal action - fails because preconditions aren't met
 python src/reason.py job_application legality \
     --actions "application_sent(1)"
 ```
@@ -187,24 +196,26 @@ Execute the complete BPMN process with exogenous events.
 python src/reason.py <model_name> execute [--controller <number>]
 ```
 
-**Example:**
+This opens the IndiGolog Tkinter window for issuing exogenous events.
+The execution history is printed at the end.
+
+Examples:
 ```bash
-# Opens Tkinter window for exogenous events
-# Execution history is printed at the end
 python src/reason.py job_application execute --controller 1
 ```
 
-**Exogenous events** can be sent via the GUI (e.g., `job_needed(1)`, `prepare_application(end,1)`, `end_indi` to finish).
+**Exogenous events** can be sent via the GUI (e.g., `job_needed(1)`, `prepare_application(end,1)`, `end_indi` to finish).  
+For the specific exogenous events available in the case study, refer to the [README](pl_models/case_study/README.md) in the `pl_models/case_study` folder.
 
 #### Conformance Checking
-Verify if an execution history conforms to the process specification using `trans_star/4`.
+Verify if an execution history conforms to the process specification.
 
 ```bash
 python src/reason.py <model_name> conformance \
     --history <action1,action2,...>
 ```
 
-**Example:**
+Examples:
 ```bash
 python src/reason.py job_application conformance \
     --history "job_needed(1),acquire(1,applicant),prepare_application(start,1),prepare_application(end,1),application_sent(1),acquire(1,company)"
@@ -216,20 +227,18 @@ python src/reason.py job_application conformance \
 - CPU time
 
 #### Property Verification
-Execute a custom reasoning task to verify process properties using `do/3`.
+Verify process properties over the whole execution.
 
 ```bash
 python src/reason.py <model_name> verify \
     [--proc-name <procedure_name>]
+    --property <property>
 ```
 
-**Example:**
+Examples:
 ```bash
-# Uses proc(reasoning_task, ...) defined in the model
-python src/reason.py job_application verify --proc-name reasoning_task
+python src/reason.py job_application verify --proc-name property_verification --property "signed_contract(id), neg(done(application_finalised(id)))"
 ```
-
-**Note:** The procedure must be defined in your model's Prolog file as `proc(<proc_name>, ...)`.
 
 #### Interactive Mode
 Start an interactive SWI-Prolog session for manual queries.
@@ -257,7 +266,7 @@ python src/reason.py <model_name> projection --fluent <F> --actions <A> --expect
 python src/reason.py <model_name> legality --actions <A> [--proc-name <P>]
 python src/reason.py <model_name> execute [--controller <N>]
 python src/reason.py <model_name> conformance --history <H>
-python src/reason.py <model_name> verify [--proc-name <P>]
+python src/reason.py <model_name> verify [--property <P>]
 python src/reason.py <model_name> interactive
 
 # Get help
@@ -292,63 +301,8 @@ python src/reason.py job_application conformance \
     --history "job_needed(1),acquire(1,applicant),prepare_application(start,1)"
 
 # 6. Verify custom properties
-python src/reason.py job_application verify --proc-name reasoning_task
+python src/reason.py job_application verify --property "signed_contract(id), neg(done(application_finalised(id)))"
 ```
-
-## Advanced Usage
-
-### Exit Codes
-All reasoning tasks return proper exit codes for CI/CD integration:
-- `0`: Success (query succeeded, sequence is legal, conformant, etc.)
-- `1`: Failure (query failed, sequence is illegal, non-conformant, etc.)
-
-### Action Parsing
-The script intelligently handles complex action arguments:
-```bash
-# Actions with multiple parameters
-python src/reason.py job_application projection \
-    --fluent "documents_ok(1)" \
-    --actions "check_validity(start,1),check_validity(end,1,true)" \
-    --expected true
-
-# Actions with nested structures are properly parsed
-```
-
-### Performance Monitoring
-All reasoning tasks report:
-- **Inferences**: Number of logical inferences performed
-- **CPU time**: Time spent in computation (seconds)
-
-Example output:
-```
-203,521 inferences, 0.023 CPU in 0.023 seconds
-```
-
-## IndiGolog Framework
-
-This project uses the [IndiGolog framework](https://github.com/ai-krml-uoft/indigolog) for high-level agent programming in the Situation Calculus. IndiGolog provides:
-
-- **Basic Action Theory (BAT)**: Formal representation of actions and their effects
-- **Temporal Projection** (`eval/3`): Query fluent values after action sequences
-- **Transition Semantics** (`trans_star/4`): Verify execution traces
-- **Planning** (`do/3`): Search for action sequences achieving goals
-- **Execution**: Run processes with exogenous event handling
-- **Environment Management**: Device simulators with GUI interfaces
-
-### Key Predicates
-
-- `eval(Fluent, Actions, Value)`: Evaluate fluent after actions
-- `trans_star(Program, S, _, History)`: Check if history is valid execution
-- `do(Program, S, History)`: Execute program and return history
-- `indigolog(Program)`: Execute program with interpreter
-- `initialize(evaluator)`: Initialize reasoning engine
-
-## References
-
-- **IndiGolog**: High-level programming language based on Situation Calculus ([GitHub](https://github.com/ai-krml-uoft/indigolog))
-- **Situation Calculus**: Logic formalism for reasoning about dynamic systems
-- **BPMN**: Business Process Model and Notation ([OMG Standard](https://www.omg.org/spec/BPMN/))
-- **ConGolog**: Concurrent Golog language for agent programming
 
 ## License
 

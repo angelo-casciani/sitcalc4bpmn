@@ -8,11 +8,11 @@ from prolog_templates import *
 
 def main():
     arg_parser = argparse.ArgumentParser(
-        description="Translate a BPMN model from the '../models' directory to an IndiGolog process in the '../pl_models' directory."
+        description="Translate a BPMN model from the '../bpmn' directory to an IndiGolog process in the '../pl_models' directory."
     )
     arg_parser.add_argument(
         "bpmn_name",
-        help="The base name of the BPMN model located in the '../models' directory (e.g., 'job_application'). Do not include the .bpmn extension."
+        help="The base name of the BPMN model located in the '../bpmn' directory (e.g., 'job_application'). Do not include the .bpmn extension."
     )
     args = arg_parser.parse_args()
 
@@ -21,19 +21,19 @@ def main():
         script_dir = os.path.dirname(os.path.realpath(__file__))
         bpmn_name = args.bpmn_name
 
-        models_dir = os.path.join(script_dir, '..', 'models')
+        bpmn_dir = os.path.join(script_dir, '..', 'bpmn')
         possible_extensions = ['.bpmn', '.bpmn2.xml', '.xml']
         bpmn_file_path = None
         
         for ext in possible_extensions:
-            candidate_path = os.path.join(models_dir, f"{bpmn_name}{ext}")
+            candidate_path = os.path.join(bpmn_dir, f"{bpmn_name}{ext}")
             if os.path.exists(candidate_path):
                 bpmn_file_path = candidate_path
                 break
         
         if bpmn_file_path is None:
             print(f"Error: No BPMN file found for '{bpmn_name}' with extensions {possible_extensions}")
-            print(f"Searched in: {models_dir}")
+            print(f"Searched in: {bpmn_dir}")
             sys.exit(1)
         
         pl_model_dir = os.path.join(script_dir, '..', 'pl_models', bpmn_name)
@@ -50,7 +50,7 @@ def main():
     try:
         parser = BPMNParser(bpmn_file_path)
     except FileNotFoundError:
-        print(f"Error: Input file not found at '{bpmn_file_path}'. Please ensure it exists in the 'models' directory.")
+        print(f"Error: Input file not found at '{bpmn_file_path}'. Please ensure it exists in the 'bpmn' directory.")
         sys.exit(1)
     except Exception as e:
         print(f"An error occurred during parsing: {e}")

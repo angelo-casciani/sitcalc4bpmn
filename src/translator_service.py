@@ -8,9 +8,9 @@ class TranslatorService:
     def __init__(self):
         self.script_dir = Path(__file__).parent.resolve()
         self.project_root = self.script_dir.parent
-        self.models_dir = self.project_root / 'models'
+        self.bpmn_dir = self.project_root / 'bpmn'
         self.pl_models_dir = self.project_root / 'pl_models'
-        self.models_dir.mkdir(exist_ok=True)
+        self.bpmn_dir.mkdir(exist_ok=True)
         self.pl_models_dir.mkdir(exist_ok=True)
     
     def translate_bpmn_file(self, bpmn_file_path, model_name=None):

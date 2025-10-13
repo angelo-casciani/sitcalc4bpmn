@@ -61,7 +61,7 @@ class BPMNIndiGologUI:
             self.current_bpmn_path = None
             
             for ext in possible_extensions:
-                bpmn_path = os.path.join("models", f"{model_name}{ext}")
+                bpmn_path = os.path.join("bpmn", f"{model_name}{ext}")
                 if os.path.exists(bpmn_path):
                     self.current_bpmn_path = bpmn_path
                     break

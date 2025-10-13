@@ -23,7 +23,7 @@ sitcalc4bpmn/
 │   ├── reasoning_service.py   # Support code for reasoning
 │   ├── translator_service.py  # Support code for translation
 │   └── ui.py                  # Entry point for the GUI
-├── models/                    # Input BPMN files
+├── bpmn/                    # Input BPMN files
 ├── pl_models/                 # Generated IndiGolog translations
 |   ├── case_study/            # BPMN and IndiGolog encoding of the case study
 │   └── <model_name>/
@@ -131,7 +131,7 @@ Example:
 python src/bpmn2indi_cli.py job_application
 ```
 
-This reads `models/job_application.bpmn` and generates:
+This reads `bpmn/job_application.bpmn` and generates:
 - `pl_models/job_application/job_application.pl` (translated process)
 - `pl_models/job_application/main.pl` (main IndiGolog file)
 

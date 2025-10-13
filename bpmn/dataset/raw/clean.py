@@ -5,10 +5,12 @@ def delete_xml_by_quality(root_folder='.'):
     Iterates through folders and deletes XML files where corresponding
     quality.txt doesn't contain the value 5.
     Also moves .txt files from root to matching folder names.
+    Renames .bpmn2.xml files to .bpmn
     """
     deleted_count = 0
     processed_count = 0
     moved_count = 0
+    renamed_count = 0
     
     print("\n" + "="*50)
     print("Moving .txt files to matching folders...")
@@ -50,6 +52,7 @@ def delete_xml_by_quality(root_folder='.'):
         
         files = os.listdir(folder_path)
         quality_files = [f for f in files if f.endswith('.quality.txt')]
+        
         for quality_file in quality_files:
             prefix = quality_file.replace('.quality.txt', '')
             quality_path = os.path.join(folder_path, quality_file)
@@ -64,12 +67,20 @@ def delete_xml_by_quality(root_folder='.'):
             try:
                 with open(quality_path, 'r') as f:
                     quality_content = f.read().strip()
+                
                 if quality_content != '5':
                     os.remove(xml_path)
                     deleted_count += 1
                     print(f"  ✓ Deleted {xml_file} (quality: {quality_content})")
                 else:
-                    print(f"  ○ Kept {xml_file} (quality: {quality_content})")
+                    # Rename the file from .bpmn2.xml to .bpmn
+                    new_xml_file = f"{prefix}.bpmn"
+                    new_xml_path = os.path.join(folder_path, new_xml_file)
+                    os.rename(xml_path, new_xml_path)
+                    renamed_count += 1
+                    print(f"  ○ Kept and renamed {xml_file} → {new_xml_file} (quality: {quality_content})")
+                
+                # Always delete the quality.txt file
                 os.remove(quality_path)
                     
             except Exception as e:
@@ -80,14 +91,14 @@ def delete_xml_by_quality(root_folder='.'):
     print(f"  Moved: {moved_count} .txt files")
     print(f"  Processed: {processed_count} XML files")
     print(f"  Deleted: {deleted_count} XML files")
-    print(f"  Kept: {processed_count - deleted_count} XML files")
+    print(f"  Kept and renamed: {renamed_count} XML files (.bpmn2.xml → .bpmn)")
     print(f"{'='*50}")
 
 if __name__ == "__main__":
     root_path = '.'    
     print("Starting XML cleanup based on quality values...")
     print(f"Root folder: {os.path.abspath(root_path)}")
-    response = input("\nThis will delete XML files. Continue? (yes/no): ")
+    response = input("\nThis will delete XML files and rename kept files. Continue? (yes/no): ")
     
     if response.lower() in ['yes', 'y']:
         delete_xml_by_quality(root_path)

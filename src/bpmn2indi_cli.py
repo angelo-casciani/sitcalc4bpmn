@@ -39,7 +39,9 @@ def main():
         pl_model_dir = os.path.join(script_dir, '..', 'pl_models', bpmn_name)
         os.makedirs(pl_model_dir, exist_ok=True)
         
-        translated_pl_path = os.path.join(pl_model_dir, f'{bpmn_name}.pl')
+        # Extract just the base filename (last component) for the .pl file
+        base_name = os.path.basename(bpmn_name)
+        translated_pl_path = os.path.join(pl_model_dir, f'{base_name}.pl')
         main_pl_path = os.path.join(pl_model_dir, 'main.pl')
     except Exception as e:
         print(f"Error setting up file paths: {e}")

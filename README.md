@@ -200,7 +200,7 @@ python src/reason.py job_application execute --controller 1
 ```
 
 **Exogenous events** can be sent via the GUI (e.g., `job_needed(1)`, `prepare_application(end,1)`, `end_indi` to finish).  
-For the specific exogenous events available in the case study, refer to the [README](pl_models/case_study/README.md) in the `pl_models/case_study` folder.
+For the specific exogenous events available in the case study, please refer to the [README](pl_models/case_study/README.md) in the `pl_models/case_study` folder.
 
 #### Conformance Checking
 Verify if an execution history conforms to the process specification.
@@ -298,6 +298,10 @@ python src/reason.py job_application conformance \
 # 6. Verify custom properties
 python src/reason.py job_application verify --property "signed_contract(id), neg(done(application_finalised(id)))"
 ```
+
+## Evaluation
+
+For the dataset, setup, and results of the evaluation for the suite, please refer to the [README](evaluation/README.md) in the `evaluation` folder.
 
 ## License
 

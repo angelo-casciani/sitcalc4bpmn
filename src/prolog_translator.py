@@ -19,17 +19,27 @@ class PrologTranslator:
     def _prologify(self, name):
         if not name: return ""
         s = name.lower()
+        # Replace comparison operators with words before other replacements
+        s = s.replace('>', 'larger')
+        s = s.replace('<', 'smaller')
+        s = s.replace('=', 'equal')
         # Replace spaces and hyphens with underscores
         s = re.sub(r'[\s-]+', '_', s)
         # Remove or replace invalid Prolog atom characters
         # Valid Prolog atom chars: letters, digits, underscore
-        # Remove: ?, ', ", !, @, #, $, %, ^, *, +, =, ~, `, |, \, /, :, ;, <, >, &, (, ), [, ], {, }, ,, .
-        s = re.sub(r'[?\'\"!@#$%^*+=~`|\\/:;<>&\(\)\[\]{},.]', '', s)
+        # Remove: ?, ', ", !, @, #, $, %, ^, *, +, ~, `, |, \, /, :, ;, &, (, ), [, ], {, }, ,, .
+        s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
         if s.startswith('send_'):
             s = s.replace('send_', '', 1) + '_sent'
-        # Ensure the result is a valid Prolog atom (starts with lowercase letter or underscore)
-        if s and not (s[0].islower() or s[0] == '_'):
-            s = '_' + s
+        # Ensure the result is a valid Prolog atom (starts with lowercase letter)
+        # If it starts with underscore or digit, prepend a letter prefix
+        if s and not s[0].islower():
+            if s[0].isdigit():
+                s = 'n' + s  # 'n' for numeric
+            elif s[0] == '_':
+                s = 'v' + s  # 'v' for value
+            else:
+                s = 'x' + s  # 'x' for other
         return s
     
     def _is_element_type(self, elem, element_type):
@@ -77,11 +87,23 @@ class PrologTranslator:
             return f"and({conditions[0]}, {conditions[1]})"
         # For more than 2, nest recursively: and(C1, and(C2, and(C3, ...)))
         return f"and({conditions[0]}, {self._build_nested_and(conditions[1:])})"
+    
+    def _build_nested_or(self, conditions):
+        """Build nested binary or/2 predicates from a list of conditions."""
+        if not conditions:
+            return "false"
+        if len(conditions) == 1:
+            return conditions[0]
+        if len(conditions) == 2:
+            return f"or({conditions[0]}, {conditions[1]})"
+        # For more than 2, nest recursively: or(C1, or(C2, or(C3, ...)))
+        return f"or({conditions[0]}, {self._build_nested_or(conditions[1:])})"
 
     def _interleave_fluents_and_causes(self, fluents, causes):
         """
         Organize fluents and their causal laws together, matching the structure of job.pl.
         Returns a string with fluents immediately followed by their causes.
+        Handles both relational (rel_fluent) and functional (fun_fluent) fluents.
         """
         # Extract fluent names from causes to group them
         fluent_to_causes = {}
@@ -90,10 +112,11 @@ class PrologTranslator:
             # Parse cause to extract fluent name
             # Format: causes_true(action(...), fluent_name(ID), condition).
             # or: causes_false(action(...), fluent_name(ID), condition).
+            # or: causes_val(action(...), fluent_name(ID), VALUE, condition).
             # or: causes_true(action, fluent_name, condition). (for simple fluents like servers_stopped)
             import re
             # Match the fluent name (second argument), handling both fluent(ID) and simple fluent forms
-            match = re.search(r'causes_(?:true|false)\(.+?,\s*([a-z_]+)[\(,]', cause)
+            match = re.search(r'causes_(?:true|false|val)\(.+?,\s*([a-z_]+)[\(,]', cause)
             if match:
                 fluent_name = match.group(1)
                 if fluent_name not in fluent_to_causes:
@@ -103,12 +126,27 @@ class PrologTranslator:
         # Generate output with fluents followed by their causes
         result = []
         
-        # Separate simple fluents from those with :- rules
-        simple_fluents = [f for f in fluents if ':-' not in f]
+        # Separate functional, relational, and rule-based fluents
+        functional_fluents = [f for f in fluents if f.startswith('fun:') and ':-' not in f]
+        relational_fluents = [f for f in fluents if not f.startswith('fun:') and ':-' not in f]
         rule_fluents = [f for f in fluents if ':-' in f]
         
-        # Process each fluent in a consistent order
-        for fluent in sorted(simple_fluents):
+        # Process functional fluents first
+        for fluent in sorted(functional_fluents):
+            # Remove the 'fun:' prefix
+            fluent_decl = fluent[4:]  # Remove 'fun:'
+            fluent_name = fluent_decl.split('(')[0] if '(' in fluent_decl else fluent_decl
+            
+            # Add the functional fluent declaration
+            result.append(f"fun_fluent({fluent_name}(_ID)).")
+            
+            # Add its causal laws immediately after
+            if fluent_name in fluent_to_causes:
+                for cause in sorted(fluent_to_causes[fluent_name]):
+                    result.append(cause)
+        
+        # Process relational fluents
+        for fluent in sorted(relational_fluents):
             # Extract fluent name (e.g., "active(_ID, _POOL)" -> "active")
             fluent_name = fluent.split('(')[0] if '(' in fluent else fluent
             
@@ -186,20 +224,81 @@ class PrologTranslator:
         init_code = self._generate_initial_state(fluents)
         return interleaved_code + init_code
 
+    def _analyze_gateway_branches(self, gateway_id, process_data):
+        """
+        Analyze an exclusive gateway to determine if it needs a functional fluent.
+        Returns: (is_functional, branch_values_dict)
+          - is_functional: True if branches have explicit non-boolean labels OR >2 branches
+          - branch_values_dict: {flow_id: prologified_value}
+        """
+        gateway_elem = process_data['elements'][gateway_id]
+        outgoing_flows = gateway_elem.get('outgoing', [])
+        default_flow = gateway_elem.get('default')
+        
+        # Get labels for each outgoing flow
+        branch_values = {}
+        labeled_count = 0
+        has_non_boolean_labels = False
+        
+        for flow_id in outgoing_flows:
+            flow_info = process_data['sequence_flows'].get(flow_id, {})
+            flow_label = flow_info.get('name', '').strip()
+            
+            if flow_id == default_flow:
+                # Default branch gets a special value
+                branch_values[flow_id] = 'default'
+            elif flow_label:
+                # Non-empty label - create a Prolog atom from it
+                labeled_count += 1
+                prologified = self._prologify(flow_label)
+                branch_values[flow_id] = prologified
+                
+                # Check if this is a non-boolean label (not "yes", "no", "true", "false")
+                label_lower = flow_label.lower().strip()
+                if label_lower not in ['yes', 'no', 'true', 'false', '']:
+                    has_non_boolean_labels = True
+            else:
+                # Empty label - use flow index
+                branch_values[flow_id] = f'branch_{len(branch_values)}'
+        
+        # Use functional fluent if:
+        # 1. More than 2 branches with distinct labels, OR
+        # 2. Exactly 2 branches but with explicit non-boolean labels (e.g., "stay" vs "go back")
+        is_functional = (len(outgoing_flows) > 2 and labeled_count >= 2) or \
+                       (len(outgoing_flows) == 2 and has_non_boolean_labels and labeled_count >= 1)
+        
+        return is_functional, branch_values
+
     def _add_data_and_gateway_fluents(self, fluents, causes):
         for proc in self.parser.processes.values():
             for elem in proc['elements'].values():
                 if self._is_element_type(elem, EXCLUSIVE_GATEWAY) and elem['name']:
                     fluent_name = self._prologify(elem['name'])
-                    fluents.add(f"{fluent_name}(_ID)")
-                    predecessors = self._find_true_predecessors(elem['id'], proc)
-                    for pred_task in predecessors:
-                        if self._is_element_type(pred_task, TASK):
-                            task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
-                            causes.extend([
-                                f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
-                                f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
-                            ])
+                    
+                    # Analyze if this gateway needs a functional fluent
+                    is_functional, branch_values = self._analyze_gateway_branches(elem['id'], proc)
+                    
+                    if is_functional:
+                        # Functional fluent for multi-branch gateways
+                        fluents.add(f"fun:{fluent_name}(_ID)")  # Mark as functional with prefix
+                        predecessors = self._find_true_predecessors(elem['id'], proc)
+                        for pred_task in predecessors:
+                            if self._is_element_type(pred_task, TASK):
+                                task_end = f"{self._prologify(pred_task['name'])}(end, ID, VALUE)"
+                                # Generate causes_val for each possible branch value
+                                # The task returns the value that determines which branch to take
+                                causes.append(f"causes_val({task_end}, {fluent_name}(ID), VALUE, true).")
+                    else:
+                        # Relational fluent for binary gateways (traditional true/false)
+                        fluents.add(f"{fluent_name}(_ID)")
+                        predecessors = self._find_true_predecessors(elem['id'], proc)
+                        for pred_task in predecessors:
+                            if self._is_element_type(pred_task, TASK):
+                                task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
+                                causes.extend([
+                                    f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
+                                    f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
+                                ])
         
         for do_id, do_info in self.parser.data_objects.items():
             fluent_name = self._prologify(do_info['name'])
@@ -250,7 +349,7 @@ class PrologTranslator:
                         inner_conds_sorted = sorted(inner_conds, key=lambda x: (not x.endswith('(ID)'), x))
                         poss_cond = "neg(" + self._build_nested_and(inner_conds_sorted) + ")"
                     else:
-                        poss_cond = "or(" + ", ".join(sorted(unique_conditions_list)) + ")"
+                        poss_cond = self._build_nested_or(sorted(unique_conditions_list))
                 elif final_conditions: 
                     poss_cond = final_conditions[0]
                 else: 
@@ -262,7 +361,10 @@ class PrologTranslator:
                     end_poss = self._build_nested_and(end_poss_parts) if len(end_poss_parts) > 1 else end_poss_parts[0]
                     
                     if self._is_decision_task(elem_id, process):
-                        exog_actions_list.append((f"{elem_name}(end, ID, RESULT)", f"{elem_name}(end, ID, _RESULT)", "id(ID), member(RESULT, [true, false])", end_poss))
+                        is_functional, decision_values = self._get_decision_values(elem_id, process)
+                        # Format the values list as a Prolog list
+                        values_str = '[' + ', '.join(decision_values) + ']'
+                        exog_actions_list.append((f"{elem_name}(end, ID, RESULT)", f"{elem_name}(end, ID, _RESULT)", f"id(ID), member(RESULT, {values_str})", end_poss))
                     else:
                         exog_actions_list.append((f"{elem_name}(end, ID)", f"{elem_name}(end, ID)", "id(ID)", end_poss))
                 
@@ -345,8 +447,15 @@ class PrologTranslator:
         code += CONTROL_BPMN_PROCESS
         
         participant_procs = [self._prologify(p['name']) for p in self.parser.participants.values()]
-        servers = ', '.join([f'server_{p}' for p in participant_procs])
-        code += BPMN_PROCESS_CONC.format(servers=servers)
+        
+        # Generate bpmn_process procedure
+        if len(participant_procs) == 1:
+            # Single pool: no need for conc()
+            code += f"proc(bpmn_process, server_{participant_procs[0]}).\n\n\n"
+        else:
+            # Multiple pools: use conc()
+            servers = ', '.join([f'server_{p}' for p in participant_procs])
+            code += BPMN_PROCESS_CONC.format(servers=servers)
 
         for proc_id, process_data in self.parser.processes.items():
             p_name = self._prologify(self.parser.get_participant_by_process_id(proc_id)['name'])
@@ -452,6 +561,25 @@ class PrologTranslator:
                             return wait_proc
                     return wait_proc
             
+            # For regular start events (not message catch), wait for the exogenous start event
+            # before proceeding with the rest of the process
+            if elem_name:  # Only if start event has a name
+                wait_proc = f"?(done({elem_name}(ID)))"
+                outgoing_flows = elem.get('outgoing', [])
+                if outgoing_flows:
+                    next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                    next_proc = self._build_proc_for_element(next_elem_id, process_data, visited)
+                    if next_proc and next_proc != "[]":
+                        if next_proc.startswith('[') and next_proc.endswith(']'):
+                            inner = next_proc[1:-1]
+                            return f"[{wait_proc}, {inner}]"
+                        else:
+                            return f"[{wait_proc}, {next_proc}]"
+                    else:
+                        return wait_proc
+                return wait_proc
+            
+            # If start event has no name, skip it and go to next element
             outgoing_flows = elem.get('outgoing', [])
             if outgoing_flows:
                 next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
@@ -466,12 +594,26 @@ class PrologTranslator:
         elif self._is_element_type(elem, END_EVENT): 
             return f"{elem_name}(ID)" if elem_name else "[]"
         elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
-            source_elem = self._find_throw_event_for_catch(elem_id)
-            if source_elem:
-                source_name = self._prologify(source_elem['name'])
-                current_proc = f"?(done({source_name}(ID)))"
+            # Check if this is a timer event (has timerEventDefinition child)
+            is_timer = any('timerEventDefinition' in str(child) for child in elem.get('children', []))
+            
+            if is_timer and elem_name:
+                # Treat timer events as tasks: they have start/end actions
+                wait_action = f"?(done({elem_name}(end, ID)))"
+                current_proc = f"[{elem_name}(start, ID), {wait_action}]"
             else:
-                current_proc = "[]"
+                # For message/signal catch events, look for corresponding throw event
+                source_elem = self._find_throw_event_for_catch(elem_id)
+                if source_elem:
+                    source_name = self._prologify(source_elem['name'])
+                    current_proc = f"?(done({source_name}(ID)))"
+                else:
+                    # If no throw event found and not a timer, treat as a task if it has a name
+                    if elem_name:
+                        wait_action = f"?(done({elem_name}(end, ID)))"
+                        current_proc = f"[{elem_name}(start, ID), {wait_action}]"
+                    else:
+                        current_proc = "[]"
         else: 
             current_proc = ""
         
@@ -487,11 +629,43 @@ class PrologTranslator:
                 return self._build_proc_for_element(next_elem_id, process_data, visited)
             else:
                 cond_fluent = self._prologify(elem['name'])
-                default_flow_id = elem.get('default')
-                then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
-                then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
-                else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
-                return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+                is_functional, branch_values = self._analyze_gateway_branches(elem_id, process_data)
+                
+                if is_functional:
+                    # Multi-branch gateway with functional fluent
+                    # Generate nested if statements: if(fluent(ID) = value1, proc1, if(fluent(ID) = value2, proc2, default_proc))
+                    default_flow_id = elem.get('default')
+                    default_proc = None
+                    non_default_branches = []
+                    
+                    for flow_id in outgoing_flows:
+                        target_id = process_data['sequence_flows'][flow_id]['target']
+                        branch_proc = self._build_proc_for_element(target_id, process_data, visited.copy())
+                        branch_value = branch_values.get(flow_id, 'unknown')
+                        
+                        if flow_id == default_flow_id:
+                            # Default branch - will be the final else
+                            default_proc = branch_proc
+                        else:
+                            # Named branch with specific value condition
+                            non_default_branches.append((branch_value, branch_proc))
+                    
+                    # Build nested if statements from the branches
+                    # Start with the default (or [] if no default)
+                    result = default_proc if default_proc else "[]"
+                    
+                    # Wrap each non-default branch in an if, working backwards
+                    for branch_value, branch_proc in reversed(non_default_branches):
+                        result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
+                    
+                    return result
+                else:
+                    # Binary gateway (traditional true/false)
+                    default_flow_id = elem.get('default')
+                    then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                    then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
+                    else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
+                    return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
         elif self._is_element_type(elem, EVENT_BASED_GATEWAY):
             branches = []
             for flow_id in outgoing_flows:
@@ -559,38 +733,82 @@ class PrologTranslator:
             return f"[{current_proc}, {next_proc}]"
 
     def _get_all_path_conditions(self, start_node_id, process_data):
+        """
+        Enhanced: If an activity is after a parallel gateway, and the parallel is immediately preceded by another gateway (with no task in between),
+        look before that gateway. If the other gateway is exclusive, use OR of done() of all tasks before it; if parallel, use AND.
+        """
         paths = []
         q = [(start_node_id, [])]
         max_depth = 20
-        
         while q and max_depth > 0:
             max_depth -= 1
             current_id, current_path_conditions = q.pop(0)
-            
             elem = process_data['elements'].get(current_id)
-            if not elem: continue
+            if not elem:
+                continue
 
             predecessors = self._find_true_predecessors(current_id, process_data)
             if predecessors:
-                # Check if these predecessors come from an XOR merge (convergence point)
-                # If we have multiple predecessors, check if they come from parallel split or XOR
-                # Look at the immediate predecessor in the sequence flow
+                # Check if these predecessors come from a gateway
                 immediate_sources = []
                 for inc_id in elem.get('incoming', []):
                     source_id = process_data['sequence_flows'][inc_id]['source']
                     immediate_sources.append(source_id)
-                
-                # If multiple incoming flows from different immediate sources, check if it's a parallel join
+
+                # If all flows come from the same gateway, check its type
+                if len(set(immediate_sources)) == 1:
+                    gateway = process_data['elements'].get(immediate_sources[0])
+                    if gateway and GATEWAY in gateway['type'].lower():
+                        # Check if this is a DIVERGING gateway (split) - we need to look BEFORE the converging gateway
+                        # A diverging parallel gateway has 1 incoming and multiple outgoing
+                        is_parallel_diverging = (self._is_element_type(gateway, PARALLEL_GATEWAY) and 
+                                                len(gateway.get('incoming', [])) == 1 and 
+                                                len(gateway.get('outgoing', [])) > 1)
+                        
+                        if is_parallel_diverging:
+                            # This is the case you described: activity after parallel split
+                            # Need to look BEFORE this parallel to see if there's another gateway
+                            gateway_incoming_flows = gateway.get('incoming', [])
+                            if gateway_incoming_flows:
+                                before_parallel_id = process_data['sequence_flows'][gateway_incoming_flows[0]]['source']
+                                before_parallel_elem = process_data['elements'].get(before_parallel_id)
+                                
+                                # Check if the element before the parallel is a CONVERGING gateway
+                                if before_parallel_elem and GATEWAY in before_parallel_elem['type'].lower():
+                                    is_converging = len(before_parallel_elem.get('incoming', [])) > 1 and len(before_parallel_elem.get('outgoing', [])) == 1
+                                    
+                                    if is_converging:
+                                        # Look before this converging gateway to find the tasks
+                                        before_converging_preds = self._find_true_predecessors(before_parallel_elem['id'], process_data)
+                                        
+                                        if self._is_element_type(before_parallel_elem, EXCLUSIVE_GATEWAY):
+                                            # OR of done() of all tasks before the exclusive converging gateway
+                                            or_conds = []
+                                            for p in before_converging_preds:
+                                                pred_cond = self._get_done_condition_for_element(p)
+                                                if pred_cond:
+                                                    or_conds.append(pred_cond)
+                                            if or_conds:
+                                                paths.append(current_path_conditions + [self._build_nested_or(sorted(or_conds))])
+                                                continue
+                                        elif self._is_element_type(before_parallel_elem, PARALLEL_GATEWAY):
+                                            # AND of done() of all tasks before the parallel converging gateway
+                                            and_conds = []
+                                            for p in before_converging_preds:
+                                                pred_cond = self._get_done_condition_for_element(p)
+                                                if pred_cond:
+                                                    and_conds.append(pred_cond)
+                                            if and_conds:
+                                                paths.append(current_path_conditions + [self._build_nested_and(sorted(and_conds))])
+                                                continue
+                # Fallback to original logic
+                # If multiple predecessors and it's NOT a parallel join, it's an XOR merge
                 is_parallel_join = False
                 if len(set(immediate_sources)) == 1:
-                    # All flows come from same gateway - likely parallel join
                     gateway = process_data['elements'].get(immediate_sources[0])
                     if gateway and 'parallelGateway' in gateway['type']:
                         is_parallel_join = True
-                
-                # If we have multiple predecessors and it's NOT a parallel join, it's an XOR merge
                 is_xor_merge = len(predecessors) > 1 and not is_parallel_join
-                
                 if is_xor_merge:
                     for p in predecessors:
                         pred_cond = self._get_done_condition_for_element(p)
@@ -606,23 +824,29 @@ class PrologTranslator:
                 continue
 
             if not elem.get('incoming'):
-                if current_path_conditions: paths.append(current_path_conditions)
+                if current_path_conditions:
+                    paths.append(current_path_conditions)
                 continue
 
             for inc_flow_id in elem.get('incoming'):
                 source_id = process_data['sequence_flows'][inc_flow_id]['source']
                 source_elem = process_data['elements'].get(source_id)
-                if not source_elem: continue
-
+                if not source_elem:
+                    continue
                 new_path_conditions = list(current_path_conditions)
                 if self._is_element_type(source_elem, EXCLUSIVE_GATEWAY) and source_elem['name']:
-                    fluent = self._prologify(source_elem['name']) + "(ID)"
-                    is_default = source_elem.get('default') == inc_flow_id
-                    new_path_conditions.append(f"neg({fluent})" if is_default else fluent)
+                    fluent_name = self._prologify(source_elem['name'])
+                    is_functional, branch_values = self._analyze_gateway_branches(source_elem['id'], process_data)
+                    if is_functional:
+                        branch_value = branch_values.get(inc_flow_id, 'unknown')
+                        new_path_conditions.append(f"{fluent_name}(ID) = {branch_value}")
+                    else:
+                        fluent = fluent_name + "(ID)"
+                        is_default = source_elem.get('default') == inc_flow_id
+                        new_path_conditions.append(f"neg({fluent})" if is_default else fluent)
                     paths.append(new_path_conditions)
                     continue
                 q.append((source_id, new_path_conditions))
-        
         return paths if paths else [[]]
 
     def _build_proc_for_branch(self, elem_id, stop_node_id, process_data, visited):
@@ -889,6 +1113,34 @@ class PrologTranslator:
         next_elem_id = process_data['sequence_flows'][task['outgoing'][0]]['target']
         next_elem = process_data['elements'].get(next_elem_id)
         return next_elem and 'exclusiveGateway' in next_elem['type'] and next_elem['name']
+
+    def _get_decision_values(self, task_id, process_data):
+        """
+        Get the possible decision values for a decision task.
+        Returns (is_functional, values_list) where:
+        - is_functional: True if the gateway uses functional fluent, False for boolean
+        - values_list: List of possible Prolog atom values
+        """
+        task = process_data['elements'].get(task_id)
+        if not task or not task['outgoing']: 
+            return False, []
+        
+        next_elem_id = process_data['sequence_flows'][task['outgoing'][0]]['target']
+        next_elem = process_data['elements'].get(next_elem_id)
+        
+        if not (next_elem and 'exclusiveGateway' in next_elem['type'] and next_elem['name']):
+            return False, []
+        
+        # Use existing gateway analysis
+        is_functional, branch_values_dict = self._analyze_gateway_branches(next_elem['id'], process_data)
+        
+        if is_functional:
+            # Return the Prologified branch values (excluding 'default' if present)
+            values = [v for v in branch_values_dict.values() if v != 'default']
+            return True, values
+        else:
+            # Boolean decision
+            return False, ['true', 'false']
 
     def _generate_footer(self):
         return FOOTER

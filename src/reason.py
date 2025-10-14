@@ -202,9 +202,31 @@ class IndiGologReasoner:
         except:
             pass
         
-        # Small delay to ensure processes are fully terminated
+        # Wait for port 8000 to actually be free - poll until it's available
         import time
-        time.sleep(0.5)
+        max_wait = 10.0  # Maximum 10 seconds
+        wait_interval = 0.3
+        elapsed = 0.0
+        
+        while elapsed < max_wait:
+            try:
+                result = subprocess.run(
+                    ['lsof', '-ti', ':8000'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2
+                )
+                if not result.stdout.strip():
+                    # Port is free - wait extra time for TCP to fully release
+                    time.sleep(3.0)
+                    break
+            except:
+                # Assume port is free if lsof fails
+                time.sleep(1.0)
+                break
+            
+            time.sleep(wait_interval)
+            elapsed += wait_interval
     
     def _kill_processes_on_port(self, port=8000):
         """Kill any processes using the specified port.
@@ -438,8 +460,6 @@ class IndiGologReasoner:
             temp_file.write(f"proc({proc_name}, {action_list_str}).\n\n")
             temp_file.write(":- initialization(run_legality_check).\n\n")
             temp_file.write("run_legality_check :-\n")
-            temp_file.write("    writeln('Initializing evaluator...'),\n")
-            temp_file.write("    initialize(evaluator),\n")
             temp_file.write("    writeln('Running legality check...'),\n")
             temp_file.write("    writeln(''),\n")
             temp_file.write("    statistics(cputime, T0),\n")
@@ -458,7 +478,9 @@ class IndiGologReasoner:
             temp_file.write("                writeln(''),\n")
             temp_file.write(f"                writeln('RESULT: ERROR - Exception during execution.'),\n")
             temp_file.write(f"                format('ERROR: ~w~n', [Error]),\n")
-            temp_file.write(f"                halt(1)\n")
+            temp_file.write("                writeln('Forcing cleanup after exception...'),\n")
+            temp_file.write("                catch(finalize(indigolog), _, true),\n")  # Force IndiGolog cleanup even on exception
+            temp_file.write(f"                Result = error\n")
             temp_file.write(f"            )\n")
             temp_file.write(f"        ),\n")
             temp_file.write(f"        (Result = success ->\n")
@@ -473,6 +495,8 @@ class IndiGologReasoner:
             temp_file.write("                writeln('RESULT: SUCCESS - Action sequence is executable.'),\n")
             temp_file.write("                halt(0)\n")
             temp_file.write("            )\n")
+            temp_file.write("        ; Result = error ->\n")
+            temp_file.write("            halt(1)\n")
             temp_file.write("        ;\n")
             temp_file.write("            (\n")
             temp_file.write("                statistics(cputime, T1),\n")

@@ -155,22 +155,17 @@ class BPMNEvaluator:
             print(f"  Error translating {model_name}: {e}")
             return None
     
-    def run_projection_task(self, model_name: str, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
+    def run_projection_task(self, reasoner, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
         """Run a projection reasoning task.
         
         Args:
-            model_name: Name of the model
+            reasoner: IndiGologReasoner instance to use
             sample: Projection sample
             
         Returns:
             ReasoningMetrics or None if task failed
         """
         try:
-            # Import reasoner here to avoid circular imports
-            from reason import IndiGologReasoner
-            
-            print(f"    [DEBUG] Creating IndiGologReasoner for model: {model_name}")
-            reasoner = IndiGologReasoner(model_name)
             expected = sample.expected_result == ExpectedResult.TRUE
             expected_str = 'true' if expected else 'false'
             
@@ -184,7 +179,6 @@ class BPMNEvaluator:
             print(f"    [DEBUG] Projection returned:")
             print(f"            Success: {success}")
             print(f"            Output length: {len(output)} chars")
-            print(f"            Output preview: {output[:200]}...")
             
             metrics = MetricsCollector.parse_prolog_output(output, success)
             
@@ -201,21 +195,17 @@ class BPMNEvaluator:
             traceback.print_exc()
             return None
     
-    def run_legality_task(self, model_name: str, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
+    def run_legality_task(self, reasoner, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
         """Run a legality reasoning task.
         
         Args:
-            model_name: Name of the model
+            reasoner: IndiGologReasoner instance to use
             sample: Legality sample
             
         Returns:
             ReasoningMetrics or None if task failed
         """
         try:
-            from reason import IndiGologReasoner
-            
-            print(f"    [DEBUG] Creating IndiGologReasoner for model: {model_name}")
-            reasoner = IndiGologReasoner(model_name)
             proc_name = f"test_legality_{sample.sample_id}"
             
             print(f"    [DEBUG] Calling legality with:")
@@ -227,8 +217,6 @@ class BPMNEvaluator:
             print(f"    [DEBUG] Legality returned:")
             print(f"            Success: {success}")
             print(f"            Output length: {len(output)} chars")
-            print(f"            Output contains 'RESULT: SUCCESS': {'RESULT: SUCCESS' in output}")
-            print(f"            Output contains 'RESULT: FAILURE': {'RESULT: FAILURE' in output}")
             
             metrics = MetricsCollector.parse_prolog_output(output, success)
             
@@ -245,22 +233,17 @@ class BPMNEvaluator:
             traceback.print_exc()
             return None
     
-    def run_conformance_task(self, model_name: str, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
+    def run_conformance_task(self, reasoner, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
         """Run a conformance checking task.
         
         Args:
-            model_name: Name of the model
+            reasoner: IndiGologReasoner instance to use
             sample: Conformance sample
             
         Returns:
             ReasoningMetrics or None if task failed
         """
         try:
-            from reason import IndiGologReasoner
-            
-            print(f"    [DEBUG] Creating IndiGologReasoner for model: {model_name}")
-            reasoner = IndiGologReasoner(model_name)
-            
             print(f"    [DEBUG] Calling conformance_checking with:")
             print(f"            History length: {len(sample.actions)}")
             print(f"            Actions: {sample.actions}")
@@ -288,21 +271,17 @@ class BPMNEvaluator:
             traceback.print_exc()
             return None
     
-    def run_property_verification_task(self, model_name: str, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
+    def run_property_verification_task(self, reasoner, sample: ReasoningSample) -> Optional[ReasoningMetrics]:
         """Run a property verification task.
         
         Args:
-            model_name: Name of the model
+            reasoner: IndiGologReasoner instance to use
             sample: Property verification sample
             
         Returns:
             ReasoningMetrics or None if task failed
         """
         try:
-            from reason import IndiGologReasoner
-            
-            print(f"    [DEBUG] Creating IndiGologReasoner for model: {model_name}")
-            reasoner = IndiGologReasoner(model_name)
             proc_name = f"verify_property_{sample.sample_id}"
             
             print(f"    [DEBUG] Calling verify_property with:")
@@ -403,19 +382,24 @@ class BPMNEvaluator:
         print("\n[4/5] Running reasoning tasks...")
         task_results = []
         
+        # Create a single reasoner instance for all tasks on this model
+        from reason import IndiGologReasoner
+        print(f"  Creating single IndiGologReasoner for model: {model_name}")
+        reasoner = IndiGologReasoner(model_name)
+        
         for i, sample in enumerate(samples, 1):
             print(f"  [{i}/{len(samples)}] {sample.task_type.value} - Sample {sample.sample_id}")
             
             metrics = None
             
             if sample.task_type == ReasoningTask.PROJECTION:
-                metrics = self.run_projection_task(model_name, sample)
+                metrics = self.run_projection_task(reasoner, sample)
             elif sample.task_type == ReasoningTask.LEGALITY:
-                metrics = self.run_legality_task(model_name, sample)
+                metrics = self.run_legality_task(reasoner, sample)
             elif sample.task_type == ReasoningTask.CONFORMANCE:
-                metrics = self.run_conformance_task(model_name, sample)
+                metrics = self.run_conformance_task(reasoner, sample)
             elif sample.task_type == ReasoningTask.PROPERTY_VERIFICATION:
-                metrics = self.run_property_verification_task(model_name, sample)
+                metrics = self.run_property_verification_task(reasoner, sample)
             
             if metrics:
                 task_result = {

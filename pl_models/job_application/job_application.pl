@@ -212,7 +212,7 @@ This implements a server for the applicant pool of the process model.
 proc(server_applicant, iconc(pi(id, [acquire(id, applicant), handle_applicant(id)]))).
 
 proc(applicant(ID),
-  [prepare_application(start, ID), ?(done(prepare_application(end, ID))), application_sent(ID), ndet([?(done(contract_sent(ID))), [sign_contract(start, ID), ?(done(sign_contract(end, ID))), signed_contract_sent(ID), communicate_recruitment(start, ID), ?(done(communicate_recruitment(end, ID))), application_finalised(ID)]], [?(done(letter_of_refusal_sent(ID))), application_finalised(ID)])]
+  [?(done(job_needed(ID))), prepare_application(start, ID), ?(done(prepare_application(end, ID))), application_sent(ID), ndet([?(done(contract_sent(ID))), [sign_contract(start, ID), ?(done(sign_contract(end, ID))), signed_contract_sent(ID), communicate_recruitment(start, ID), ?(done(communicate_recruitment(end, ID))), application_finalised(ID)]], [?(done(letter_of_refusal_sent(ID))), application_finalised(ID)])]
 ).
 
 proc(handle_applicant(ID),

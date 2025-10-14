@@ -270,8 +270,8 @@ class ReportGenerator:
             model_name = row.get('model_name', '')
             if model_name and model_name not in model_translation:
                 model_translation[model_name] = {
-                    'time': float(row.get('translation_time_sec', 0)),
-                    'memory': float(row.get('memory_usage_mb', 0)),
+                    'time': round(float(row.get('translation_time_sec', 0)), 3),
+                    'memory': round(float(row.get('memory_usage_mb', 0)), 3),
                     'actions': int(row.get('num_actions', 0))
                 }
         

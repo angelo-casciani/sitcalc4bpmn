@@ -19,20 +19,15 @@ class PrologTranslator:
     def _prologify(self, name):
         if not name: return ""
         s = name.lower()
-        # Replace comparison operators with words before other replacements
         s = s.replace('>', 'larger')
         s = s.replace('<', 'smaller')
         s = s.replace('=', 'equal')
-        # Replace spaces and hyphens with underscores
+        s = s.replace('+', 'and')
+        s = s.strip(' ')
         s = re.sub(r'[\s-]+', '_', s)
-        # Remove or replace invalid Prolog atom characters
-        # Valid Prolog atom chars: letters, digits, underscore
-        # Remove: ?, ', ", !, @, #, $, %, ^, *, +, ~, `, |, \, /, :, ;, &, (, ), [, ], {, }, ,, .
         s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
         if s.startswith('send_'):
             s = s.replace('send_', '', 1) + '_sent'
-        # Ensure the result is a valid Prolog atom (starts with lowercase letter)
-        # If it starts with underscore or digit, prepend a letter prefix
         if s and not s[0].islower():
             if s[0].isdigit():
                 s = 'n' + s  # 'n' for numeric

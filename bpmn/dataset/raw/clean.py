@@ -86,12 +86,42 @@ def delete_xml_by_quality(root_folder='.'):
             except Exception as e:
                 print(f"  ✗ Error processing {quality_file}: {str(e)}")
     
+    # Rename folders to lowercase
+    print("\n" + "="*50)
+    print("Renaming folders to lowercase...")
+    print("="*50)
+    
+    folders_renamed = 0
+    folders_to_rename = []
+    
+    # Collect folders that need renaming
+    for folder_name in os.listdir(root_folder):
+        folder_path = os.path.join(root_folder, folder_name)
+        if os.path.isdir(folder_path):
+            lowercase_name = folder_name.lower()
+            if folder_name != lowercase_name:
+                folders_to_rename.append((folder_name, lowercase_name))
+    
+    # Rename folders
+    for old_name, new_name in folders_to_rename:
+        old_path = os.path.join(root_folder, old_name)
+        new_path = os.path.join(root_folder, new_name)
+        try:
+            os.rename(old_path, new_path)
+            folders_renamed += 1
+            print(f"  ✓ Renamed {old_name} → {new_name}")
+        except Exception as e:
+            print(f"  ✗ Error renaming {old_name}: {str(e)}")
+    
+    print(f"\nRenamed {folders_renamed} folders")
+    
     print(f"\n{'='*50}")
     print(f"Summary:")
     print(f"  Moved: {moved_count} .txt files")
     print(f"  Processed: {processed_count} XML files")
     print(f"  Deleted: {deleted_count} XML files")
     print(f"  Kept and renamed: {renamed_count} XML files (.bpmn2.xml → .bpmn)")
+    print(f"  Renamed folders: {folders_renamed} folders to lowercase")
     print(f"{'='*50}")
 
 if __name__ == "__main__":

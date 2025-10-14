@@ -195,7 +195,7 @@ main :-
 
 main(C) :- assert(control(C)), indigolog(C).
 
-:- set_option(log_level, 2).
+:- set_option(log_level, 1).
 :- set_option(log_level, em(1)).
 :- set_option(wait_step, 1).
 

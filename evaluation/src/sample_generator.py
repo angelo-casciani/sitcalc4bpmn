@@ -9,10 +9,14 @@ This module generates test samples for different reasoning tasks:
 """
 
 import re
+import random
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from enum import Enum
 from bpmn_metrics import BPMNMetrics
+
+RANDOM_SEED = 42
+random.seed(RANDOM_SEED)
 
 
 class ReasoningTask(Enum):
@@ -302,13 +306,13 @@ class SampleGenerator:
         first_task_raw = self.metrics.first_task_after_start
         first_task = self._sanitize_single_name(first_task_raw) if first_task_raw else (task_names[0] if task_names else None)
         
-        # Sample 1: CONFORMS - Start event + first task in control flow
-        if start_event and first_task:
-            actions = [
-                f"{start_event}({self.id_param})",
-                f"{first_task}(start, {self.id_param})", 
-                f"{first_task}(end, {self.id_param})"
-            ]
+        # Sample 1: CONFORMS - Start event + complete execution of all tasks
+        if start_event and len(task_names) >= 1:
+            actions = [f"{start_event}({self.id_param})"]
+            # Include all tasks in sequence for a complete conformant trace
+            for task in task_names:
+                actions.append(f"{task}(start, {self.id_param})")
+                actions.append(f"{task}(end, {self.id_param})")
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=1,
@@ -316,7 +320,7 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Start event + valid execution of first task '{first_task}'"
+                description=f"Conforms: Complete execution - start event + all tasks in sequence"
             ))
         
         # Sample 2: NOT CONFORMS - Skip start event (use first task)
@@ -332,14 +336,15 @@ class SampleGenerator:
                 description=f"Not conforms: Missing start event before first task '{first_task}'"
             ))
         
-        # Sample 3: CONFORMS - Start event + sequential tasks
+        # Sample 3: CONFORMS - Start event + first half of tasks (partial but valid execution)
         if start_event and len(task_names) >= 2:
-            task1, task2 = task_names[0], task_names[1]
-            actions = [
-                f"{start_event}({self.id_param})",
-                f"{task1}(start, {self.id_param})", f"{task1}(end, {self.id_param})",
-                f"{task2}(start, {self.id_param})", f"{task2}(end, {self.id_param})"
-            ]
+            # Include first half of tasks (rounded up) for a valid partial execution
+            num_tasks_to_include = (len(task_names) + 1) // 2
+            actions = [f"{start_event}({self.id_param})"]
+            for task in task_names[:num_tasks_to_include]:
+                actions.append(f"{task}(start, {self.id_param})")
+                actions.append(f"{task}(end, {self.id_param})")
+            task_list = ' → '.join(task_names[:num_tasks_to_include])
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=3,
@@ -347,7 +352,7 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Start event + sequential execution '{task1}' → '{task2}'"
+                description=f"Conforms: Start event + first half of tasks: {task_list}"
             ))
         
         # Sample 4: NOT CONFORMS - Wrong order (even with start event)
@@ -368,15 +373,15 @@ class SampleGenerator:
                 description=f"Not conforms: Wrong order '{task2}' before '{task1}'"
             ))
         
-        # Sample 5: CONFORMS - Start event + longer sequence
-        if start_event and len(task_names) >= 3:
-            task1, task2, task3 = task_names[0], task_names[1], task_names[2]
-            actions = [
-                f"{start_event}({self.id_param})",
-                f"{task1}(start, {self.id_param})", f"{task1}(end, {self.id_param})",
-                f"{task2}(start, {self.id_param})", f"{task2}(end, {self.id_param})",
-                f"{task3}(start, {self.id_param})", f"{task3}(end, {self.id_param})"
-            ]
+        # Sample 5: CONFORMS - Start event + first 3 tasks (if available) in sequence
+        if start_event and len(task_names) >= 1:
+            # Include first 3 tasks or all tasks if fewer than 3
+            num_tasks = min(3, len(task_names))
+            actions = [f"{start_event}({self.id_param})"]
+            for task in task_names[:num_tasks]:
+                actions.append(f"{task}(start, {self.id_param})")
+                actions.append(f"{task}(end, {self.id_param})")
+            task_list = ' → '.join(task_names[:num_tasks])
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=5,
@@ -384,7 +389,7 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Start event + longer sequence '{task1}' → '{task2}' → '{task3}'"
+                description=f"Conforms: Start event + first {num_tasks} task(s): {task_list}"
             ))
         
         # Sample 6: NOT CONFORMS - Incomplete execution (start without end)

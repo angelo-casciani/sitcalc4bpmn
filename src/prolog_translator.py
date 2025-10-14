@@ -23,6 +23,7 @@ class PrologTranslator:
         s = s.replace('<', 'smaller')
         s = s.replace('=', 'equal')
         s = s.replace('+', 'and')
+        s = s.replace('ß', 'ss')
         s = s.strip(' ')
         s = re.sub(r'[\s-]+', '_', s)
         s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
@@ -36,6 +37,33 @@ class PrologTranslator:
             else:
                 s = 'x' + s  # 'x' for other
         return s
+    
+    def _get_or_generate_gateway_fluent_name(self, gateway_elem, process_data):
+        """Get the fluent name for a gateway, generating one if the gateway has no name."""
+        if gateway_elem.get('name'):
+            return self._prologify(gateway_elem['name'])
+        
+        # Generate a name based on the gateway's outgoing flow labels
+        outgoing_flows = gateway_elem.get('outgoing', [])
+        flow_labels = []
+        for flow_id in outgoing_flows:
+            flow_info = process_data['sequence_flows'].get(flow_id, {})
+            label = flow_info.get('name', '').strip()
+            if label:
+                flow_labels.append(self._prologify(label))
+        
+        # Use the flow labels to create a descriptive name
+        if len(flow_labels) >= 2:
+            # Use first two labels: "choice_label1_or_label2"
+            return f"choice_{flow_labels[0]}_or_{flow_labels[1]}"
+        elif len(flow_labels) == 1:
+            # Use single label: "choice_label"
+            return f"choice_{flow_labels[0]}"
+        else:
+            # Last resort: use gateway ID suffix
+            gw_id = gateway_elem.get('id', '')
+            suffix = gw_id[-8:] if len(gw_id) > 8 else gw_id
+            return f"gateway_{suffix}"
     
     def _is_element_type(self, elem, element_type):
         """Check if an element matches a specific type (case-insensitive)."""
@@ -219,6 +247,153 @@ class PrologTranslator:
         init_code = self._generate_initial_state(fluents)
         return interleaved_code + init_code
 
+    def _detect_loop_structure(self, converging_gw_id, process_data):
+        """
+        Detect if a converging exclusive gateway is part of a loop structure.
+        Returns: (is_loop, diverging_gw_id, loop_back_flow_id, exit_flow_id)
+        
+        Loop pattern:
+        - Converging gateway with multiple incoming flows
+        - Immediately followed by a diverging gateway
+        - One branch from diverging gateway loops back to converging gateway
+        - Other branch(es) exit the loop
+        """
+        converging_gw = process_data['elements'].get(converging_gw_id)
+        if not converging_gw or not self._is_element_type(converging_gw, EXCLUSIVE_GATEWAY):
+            return False, None, None, None
+        
+        incoming_flows = converging_gw.get('incoming', [])
+        outgoing_flows = converging_gw.get('outgoing', [])
+        
+        # Must be a merge (multiple incoming, single outgoing)
+        if len(incoming_flows) <= 1 or len(outgoing_flows) != 1:
+            return False, None, None, None
+        
+        # Check if immediately followed by a diverging gateway
+        next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+        next_elem = process_data['elements'].get(next_elem_id)
+        
+        if not next_elem or not self._is_element_type(next_elem, EXCLUSIVE_GATEWAY):
+            return False, None, None, None
+        
+        diverging_outgoing = next_elem.get('outgoing', [])
+        if len(diverging_outgoing) < 2:
+            return False, None, None, None
+        
+        # Check if any branch loops back to the converging gateway
+        loop_back_flows = []
+        exit_flows = []
+        
+        for flow_id in diverging_outgoing:
+            # Trace this flow to see if it eventually reaches the converging gateway
+            if self._flow_reaches_target(flow_id, converging_gw_id, process_data, max_depth=50):
+                loop_back_flows.append(flow_id)
+            else:
+                exit_flows.append(flow_id)
+        
+        # If both branches from the immediate diverging gateway loop back,
+        # find the actual decision gateway deeper in the flow
+        if loop_back_flows and not exit_flows:
+            # Both branches loop back - need to find the gateway that decides to exit
+            decision_gw = self._find_loop_decision_gateway(next_elem_id, converging_gw_id, process_data)
+            if decision_gw:
+                return True, decision_gw, None, None  # We'll determine loop/exit flows later
+        
+        # Accept either pattern:
+        # 1. One branch loops back, others exit (standard while loop)
+        if exit_flows and loop_back_flows:
+            # This is a loop structure
+            # Use the first loop-back flow (they should all loop back anyway in pattern 2)
+            return True, next_elem_id, loop_back_flows[0], exit_flows[0]
+        
+        return False, None, None, None
+    
+    def _find_loop_decision_gateway(self, start_elem_id, loop_target_id, process_data, max_depth=50):
+        """
+        Find the gateway that actually decides whether to loop back or exit.
+        This is the gateway where one branch reaches loop_target and another doesn't.
+        """
+        visited = set()
+        queue = [(start_elem_id, [])]  # (elem_id, path)
+        
+        while queue and max_depth > 0:
+            max_depth -= 1
+            elem_id, path = queue.pop(0)
+            
+            if elem_id in visited:
+                continue
+            visited.add(elem_id)
+            
+            elem = process_data['elements'].get(elem_id)
+            if not elem:
+                continue
+            
+            # Check if this is an exclusive gateway with diverging branches
+            if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                outgoing = elem.get('outgoing', [])
+                if len(outgoing) >= 2:
+                    # Check if one branch loops back and another doesn't
+                    loops_back = []
+                    exits = []
+                    
+                    for flow_id in outgoing:
+                        if self._flow_reaches_target(flow_id, loop_target_id, process_data, max_depth=30):
+                            loops_back.append(flow_id)
+                        else:
+                            exits.append(flow_id)
+                    
+                    # This is the decision gateway if it has both loop-back and exit branches
+                    if loops_back and exits:
+                        return elem_id
+            
+            # Continue searching through outgoing flows
+            for out_flow_id in elem.get('outgoing', []):
+                next_flow = process_data['sequence_flows'].get(out_flow_id)
+                if next_flow and next_flow['target'] not in visited:
+                    queue.append((next_flow['target'], path + [elem_id]))
+        
+        return None
+    
+    def _flow_reaches_target(self, flow_id, target_elem_id, process_data, max_depth=50):
+        """Check if following a flow eventually reaches a target element."""
+        if max_depth <= 0:
+            return False
+        
+        flow_info = process_data['sequence_flows'].get(flow_id)
+        if not flow_info:
+            return False
+        
+        current_elem_id = flow_info['target']
+        if current_elem_id == target_elem_id:
+            return True
+        
+        # BFS to find if we can reach target
+        visited = set()
+        queue = [current_elem_id]
+        
+        while queue and max_depth > 0:
+            max_depth -= 1
+            elem_id = queue.pop(0)
+            
+            if elem_id in visited:
+                continue
+            visited.add(elem_id)
+            
+            if elem_id == target_elem_id:
+                return True
+            
+            elem = process_data['elements'].get(elem_id)
+            if not elem:
+                continue
+            
+            # Add outgoing elements to queue
+            for out_flow_id in elem.get('outgoing', []):
+                next_flow = process_data['sequence_flows'].get(out_flow_id)
+                if next_flow:
+                    queue.append(next_flow['target'])
+        
+        return False
+
     def _analyze_gateway_branches(self, gateway_id, process_data):
         """
         Analyze an exclusive gateway to determine if it needs a functional fluent.
@@ -234,6 +409,7 @@ class PrologTranslator:
         branch_values = {}
         labeled_count = 0
         has_non_boolean_labels = False
+        all_branches_labeled = True
         
         for flow_id in outgoing_flows:
             flow_info = process_data['sequence_flows'].get(flow_id, {})
@@ -253,22 +429,31 @@ class PrologTranslator:
                 if label_lower not in ['yes', 'no', 'true', 'false', '']:
                     has_non_boolean_labels = True
             else:
-                # Empty label - use flow index
-                branch_values[flow_id] = f'branch_{len(branch_values)}'
+                # Empty label - use flow index or generate default name
+                all_branches_labeled = False
+                branch_values[flow_id] = f'branch_{len(branch_values) + 1}'
         
         # Use functional fluent if:
         # 1. More than 2 branches with distinct labels, OR
-        # 2. Exactly 2 branches but with explicit non-boolean labels (e.g., "stay" vs "go back")
+        # 2. Exactly 2 branches but with explicit non-boolean labels (e.g., "stay" vs "go back"), OR
+        # 3. All branches (2+) have labels but no default is specified (need to treat as functional)
         is_functional = (len(outgoing_flows) > 2 and labeled_count >= 2) or \
-                       (len(outgoing_flows) == 2 and has_non_boolean_labels and labeled_count >= 1)
+                       (len(outgoing_flows) == 2 and has_non_boolean_labels and labeled_count >= 1) or \
+                       (len(outgoing_flows) >= 2 and labeled_count == len(outgoing_flows) and not default_flow)
         
         return is_functional, branch_values
 
     def _add_data_and_gateway_fluents(self, fluents, causes):
         for proc in self.parser.processes.values():
             for elem in proc['elements'].values():
-                if self._is_element_type(elem, EXCLUSIVE_GATEWAY) and elem['name']:
-                    fluent_name = self._prologify(elem['name'])
+                if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                    # Check if this gateway has outgoing flows (it's a diverging gateway)
+                    outgoing_flows = elem.get('outgoing', [])
+                    if len(outgoing_flows) < 2:
+                        continue  # Skip merge gateways
+                    
+                    # Get or generate fluent name for this gateway
+                    fluent_name = self._get_or_generate_gateway_fluent_name(elem, proc)
                     
                     # Analyze if this gateway needs a functional fluent
                     is_functional, branch_values = self._analyze_gateway_branches(elem['id'], proc)
@@ -620,10 +805,74 @@ class PrologTranslator:
             is_merge = len(incoming_flows) > 1 and len(outgoing_flows) == 1
             
             if is_merge:
-                next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
-                return self._build_proc_for_element(next_elem_id, process_data, visited)
+                # Check if this is part of a loop structure
+                is_loop, div_gw_id, loop_back_flow, exit_flow = self._detect_loop_structure(elem_id, process_data)
+                
+                if is_loop:
+                    # This is a loop structure: [?(done(start_event)), while(condition, loop_body)]
+                    div_gw = process_data['elements'][div_gw_id]
+                    is_functional, branch_values = self._analyze_gateway_branches(div_gw_id, process_data)
+                    
+                    # Determine which flows loop back and which exit
+                    div_gw_outgoing = div_gw.get('outgoing', [])
+                    loop_back_flow_id = None
+                    exit_flow_id = None
+                    
+                    for flow_id in div_gw_outgoing:
+                        if self._flow_reaches_target(flow_id, elem_id, process_data, max_depth=50):
+                            loop_back_flow_id = flow_id
+                        else:
+                            exit_flow_id = flow_id
+                    
+                    if not loop_back_flow_id or not exit_flow_id:
+                        # Couldn't determine flows properly, fall back to regular merge
+                        next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                        return self._build_proc_for_element(next_elem_id, process_data, visited)
+                    
+                    # Build the loop body starting from the first diverging gateway after the converging gateway
+                    # but stopping before we loop back to the converging gateway
+                    first_div_gw_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                    loop_body_visited = visited.copy()
+                    loop_body_visited.add(elem_id)  # Don't revisit the converging gateway
+                    loop_body = self._build_proc_for_element(first_div_gw_id, process_data, loop_body_visited)
+                    
+                    # Get the exit branch (what follows after the loop)
+                    exit_start_id = process_data['sequence_flows'][exit_flow_id]['target']
+                    exit_proc = self._build_proc_for_element(exit_start_id, process_data, visited.copy())
+                    
+                    # Determine the loop condition based on the decision gateway
+                    # The condition should be TRUE to continue looping (follow loop_back branch)
+                    cond_fluent = self._get_or_generate_gateway_fluent_name(div_gw, process_data)
+                    
+                    if is_functional:
+                        # Functional fluent: check which branch is the loop-back
+                        loop_value = branch_values.get(loop_back_flow_id, 'branch_1')
+                        # while(condition, body) where condition continues the loop
+                        loop_condition = f"{cond_fluent}(ID) = {loop_value}"
+                    else:
+                        # Binary fluent: determine if loop_back is the "true" or "default" branch
+                        default_flow = div_gw.get('default')
+                        
+                        if loop_back_flow_id == default_flow:
+                            # Loop continues on default (negation of condition)
+                            loop_condition = f"neg({cond_fluent}(ID))"
+                        else:
+                            # Loop continues when condition is true
+                            loop_condition = f"{cond_fluent}(ID)"
+                    
+                    # Construct: while(condition, loop_body) followed by exit_proc
+                    while_construct = f"while({loop_condition}, {loop_body})"
+                    
+                    if exit_proc and exit_proc != "[]":
+                        return f"[{while_construct}, {exit_proc}]"
+                    else:
+                        return while_construct
+                else:
+                    # Regular merge, just continue to next element
+                    next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                    return self._build_proc_for_element(next_elem_id, process_data, visited)
             else:
-                cond_fluent = self._prologify(elem['name'])
+                cond_fluent = self._get_or_generate_gateway_fluent_name(elem, process_data)
                 is_functional, branch_values = self._analyze_gateway_branches(elem_id, process_data)
                 
                 if is_functional:

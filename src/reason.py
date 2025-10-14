@@ -155,11 +155,64 @@ class IndiGologReasoner:
         
         return self._run_prolog_query(query)
     
+    def _cleanup_indigolog_processes(self):
+        """Kill all IndiGolog-related processes (xterm, swipl, dev_sim, etc.)
+        
+        This ensures a clean state before running any reasoning task.
+        """
+        # Kill processes on port 8000 (Environment Manager)
+        try:
+            result = subprocess.run(
+                ['lsof', '-ti', ':8000'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid in pids:
+                    if pid:
+                        try:
+                            os.kill(int(pid), signal.SIGKILL)
+                        except:
+                            pass
+        except:
+            # Try fuser as fallback
+            try:
+                subprocess.run(['fuser', '-k', '8000/tcp'], capture_output=True, timeout=5)
+            except:
+                pass
+        
+        # Kill xterm processes (used for simulator)
+        try:
+            subprocess.run(['pkill', '-9', '-f', 'xterm.*dev_sim'], capture_output=True, timeout=5)
+        except:
+            pass
+        
+        # Kill dev_sim.pl processes
+        try:
+            subprocess.run(['pkill', '-9', '-f', 'dev_sim.pl'], capture_output=True, timeout=5)
+        except:
+            pass
+        
+        # Kill any stray swipl processes related to IndiGolog
+        try:
+            subprocess.run(['pkill', '-9', '-f', 'swipl.*indigolog'], capture_output=True, timeout=5)
+        except:
+            pass
+        
+        # Small delay to ensure processes are fully terminated
+        import time
+        time.sleep(0.5)
+    
     def _kill_processes_on_port(self, port=8000):
         """Kill any processes using the specified port.
         
         Args:
             port: Port number to check (default: 8000 for Environment Manager)
+        
+        DEPRECATED: Use _cleanup_indigolog_processes() instead for comprehensive cleanup.
         """
         try:
             result = subprocess.run(
@@ -203,7 +256,8 @@ class IndiGologReasoner:
         """
         process = None
         try:
-            self._kill_processes_on_port(8000)
+            # Comprehensive cleanup before starting
+            self._cleanup_indigolog_processes()
             
             process = subprocess.Popen(
                 cmd,
@@ -258,10 +312,8 @@ class IndiGologReasoner:
                 except Exception as e:
                     print(f"Warning: Error during process cleanup: {e}")
             
-            self._kill_processes_on_port(8000)
-            
-            import time
-            time.sleep(0.5)
+            # Comprehensive cleanup after execution
+            self._cleanup_indigolog_processes()
             
             try:
                 os.unlink(temp_file_path)

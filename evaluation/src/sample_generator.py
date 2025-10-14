@@ -202,11 +202,15 @@ class SampleGenerator:
         """
         samples = []
         task_names = self._get_sanitized_task_names()
+        start_events = self._get_sanitized_start_events()
         
-        # Sample 1: LEGAL - Single task execution (start then end)
-        if len(task_names) >= 1:
+        # Get the start event action (exogenous action that triggers process)
+        start_event = start_events[0] if start_events else None
+        
+        # Sample 1: LEGAL - Start event + single task execution (start then end)
+        if start_event and len(task_names) >= 1:
             task = task_names[0]
-            actions = [f"{task}(start, {self.id_param})", f"{task}(end, {self.id_param})"]
+            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})", f"{task}(end, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=1,
@@ -214,13 +218,13 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Legal: Complete execution of task '{task}'"
+                description=f"Legal: Start event + complete execution of task '{task}'"
             ))
         
-        # Sample 2: ILLEGAL - End task before start
-        if len(task_names) >= 1:
+        # Sample 2: ILLEGAL - End task before start (even with start event)
+        if start_event and len(task_names) >= 1:
             task = task_names[0]
-            actions = [f"{task}(end, {self.id_param})"]
+            actions = [f"{start_event}({self.id_param})", f"{task}(end, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=2,
@@ -228,13 +232,14 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.FAILURE,
-                description=f"Illegal: End task '{task}' before starting"
+                description=f"Illegal: End task '{task}' before starting it"
             ))
         
-        # Sample 3: LEGAL - Sequential execution of two tasks
-        if len(task_names) >= 2:
+        # Sample 3: LEGAL - Start event + sequential execution of two tasks
+        if start_event and len(task_names) >= 2:
             task1, task2 = task_names[0], task_names[1]
             actions = [
+                f"{start_event}({self.id_param})",
                 f"{task1}(start, {self.id_param})", f"{task1}(end, {self.id_param})",
                 f"{task2}(start, {self.id_param})", f"{task2}(end, {self.id_param})"
             ]
@@ -245,13 +250,13 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Legal: Sequential execution of '{task1}' then '{task2}'"
+                description=f"Legal: Start event + sequential execution of '{task1}' then '{task2}'"
             ))
         
-        # Sample 4: ILLEGAL - Start task twice without ending
-        if len(task_names) >= 1:
+        # Sample 4: ILLEGAL - Start task twice without ending (with start event)
+        if start_event and len(task_names) >= 1:
             task = task_names[0]
-            actions = [f"{task}(start, {self.id_param})", f"{task}(start, {self.id_param})"]
+            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})", f"{task}(start, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=4,
@@ -262,7 +267,7 @@ class SampleGenerator:
                 description=f"Illegal: Start task '{task}' twice without ending"
             ))
         
-        # Sample 5: LEGAL - Empty sequence
+        # Sample 5: LEGAL - Empty sequence (initial state)
         samples.append(ReasoningSample(
             task_type=ReasoningTask.LEGALITY,
             sample_id=5,
@@ -273,10 +278,10 @@ class SampleGenerator:
             description="Legal: Empty action sequence (initial state)"
         ))
         
-        # Sample 6: ILLEGAL - Execute middle task without prerequisites
-        if len(task_names) >= 2:
+        # Sample 6: ILLEGAL - Execute middle task without prerequisites (skip first task)
+        if start_event and len(task_names) >= 2:
             task = task_names[1]  # Typically requires previous task
-            actions = [f"{task}(start, {self.id_param})"]
+            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=6,
@@ -284,7 +289,7 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.FAILURE,
-                description=f"Illegal: Start '{task}' without prerequisites"
+                description=f"Illegal: Start '{task}' without completing prerequisites"
             ))
         
         return samples
@@ -507,16 +512,48 @@ class SampleGenerator:
     def _sanitize_single_name(self, name: str) -> str:
         """Sanitize a single name to be Prolog-compatible.
         
+        This method replicates the _prologify() logic from prolog_translator.py
+        to ensure names in samples match those in generated Prolog code.
+        
         Args:
             name: Name to sanitize
             
         Returns:
             Sanitized name
         """
-        # Convert to snake_case and remove special characters
-        clean = re.sub(r'[^\w\s]', '', name.lower())
-        clean = re.sub(r'\s+', '_', clean.strip())
-        return clean
+        if not name:
+            return ""
+        
+        s = name.lower()
+        # Character replacements (matching _prologify)
+        s = s.replace('>', 'larger')
+        s = s.replace('<', 'smaller')
+        s = s.replace('=', 'equal')
+        s = s.replace('+', 'and')
+        s = s.replace('ß', 'ss')
+        s = s.replace('ä', 'a')
+        s = s.replace('ö', 'o')
+        s = s.replace('ü', 'u')
+        s = s.strip(' ')
+        # Replace whitespace and hyphens with underscores
+        s = re.sub(r'[\s-]+', '_', s)
+        # Remove special characters
+        s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
+        
+        # Handle send_ prefix (convert to _sent suffix)
+        if s.startswith('send_'):
+            s = s.replace('send_', '', 1) + '_sent'
+        
+        # Ensure first character is lowercase or add prefix
+        if s and not s[0].islower():
+            if s[0].isdigit():
+                s = 'n' + s  # 'n' for numeric
+            elif s[0] == '_':
+                s = 'v' + s  # 'v' for value
+            else:
+                s = 'x' + s  # 'x' for other
+        
+        return s
     
     def _get_sanitized_task_names(self) -> List[str]:
         """Get sanitized task names suitable for Prolog.
@@ -539,16 +576,10 @@ class SampleGenerator:
         """
         sanitized = []
         for cond in self.metrics.gateway_conditions:
-            # Extract key terms and convert to snake_case
-            clean = re.sub(r'[^\w\s]', '', cond.lower())
-            clean = re.sub(r'\s+', '_', clean.strip())
-            # Often gateway conditions are questions, extract key term
-            words = clean.split('_')
-            if len(words) > 0:
-                # Use first meaningful word
-                key_word = next((w for w in words if len(w) > 2), words[0])
-                if key_word and key_word not in sanitized:
-                    sanitized.append(key_word)
+            # Use the same sanitization as for task names
+            clean = self._sanitize_single_name(cond)
+            if clean and clean not in sanitized:
+                sanitized.append(clean)
         return sanitized
     
     def _get_sanitized_start_events(self) -> List[str]:
@@ -559,9 +590,7 @@ class SampleGenerator:
         """
         sanitized = []
         for name in self.metrics.start_event_names:
-            # Convert to snake_case and remove special characters
-            clean = re.sub(r'[^\w\s]', '', name.lower())
-            clean = re.sub(r'\s+', '_', clean.strip())
+            clean = self._sanitize_single_name(name)
             if clean and clean not in sanitized:
                 sanitized.append(clean)
         return sanitized
@@ -574,8 +603,7 @@ class SampleGenerator:
         """
         sanitized = []
         for obj in self.metrics.data_objects:
-            clean = re.sub(r'[^\w\s]', '', obj.lower())
-            clean = re.sub(r'\s+', '_', clean.strip())
+            clean = self._sanitize_single_name(obj)
             if clean and clean not in sanitized:
                 sanitized.append(clean)
         return sanitized

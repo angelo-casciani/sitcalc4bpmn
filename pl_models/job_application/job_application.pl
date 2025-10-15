@@ -171,7 +171,7 @@ exog_action(verify_prerequisites(end, ID)) :- id(ID).
 poss(verify_prerequisites(end, ID), running(verify_prerequisites(start, ID))).
 
 exog_action(withdrawal_by_applicant(ID)) :- id(ID).
-poss(withdrawal_by_applicant(ID), and(pool(POOL), and(neg(done(application_analysed(ID))), and(neg(done(application_finalised(ID))), and(neg(waiting(ID, POOL)), and(active(ID, POOL), neg(done(withdrawal_by_applicant(ID))))))))).
+poss(withdrawal_by_applicant(ID), and(pool(POOL), and(neg(done(application_analysed(ID))), and(neg(done(application_finalised(ID))), and(neg(waiting(ID, POOL)), and(active(ID, applicant), and(active(ID, POOL), neg(done(withdrawal_by_applicant(ID)))))))))).
 
 exog_action(shut_down).
 poss(shut_down, and(neg(servers_stopped), neg(active_instances_check))).
@@ -212,18 +212,38 @@ This implements a server for the applicant pool of the process model.
 proc(server_applicant, iconc(pi(id, [acquire(id, applicant), handle_applicant(id)]))).
 
 proc(applicant(ID),
-  [?(done(job_needed(ID))), prepare_application(start, ID), ?(done(prepare_application(end, ID))), application_sent(ID), ndet([?(done(contract_sent(ID))), [sign_contract(start, ID), ?(done(sign_contract(end, ID))), signed_contract_sent(ID), communicate_recruitment(start, ID), ?(done(communicate_recruitment(end, ID))), application_finalised(ID)]], [?(done(letter_of_refusal_sent(ID))), application_finalised(ID)])]
+[
+  prepare_application(start,  ID),
+   ?(done(prepare_application(end,  ID))),  application_sent(ID),  ndet([
+    ?(done(contract_sent(ID))),
+     [
+      sign_contract(start,  ID),
+      ?(done(sign_contract(end,  ID))),  signed_contract_sent(ID),  communicate_recruitment(start,  ID),
+      ?(done(communicate_recruitment(end,  ID))),  application_finalised(ID)
+    ]
+  ]
+  ,
+   [
+    ?(done(letter_of_refusal_sent(ID))),  application_finalised(ID)
+  ]
+  )
+]
 ).
 
 proc(handle_applicant(ID),
-  [ gexec(and(active(ID, applicant), neg(done(withdrawal_by_applicant(ID)))), applicant(ID)),
-    if(and(active(ID, company), done(withdrawal_by_applicant(ID))),
-          [confirm_withdrawal(start, ID), ?(done(confirm_withdrawal(end, ID))), withdrawal_sent(ID), withdrawal_completed(ID)],
-          []
-      )
+[
+   gexec(and(active(ID,  applicant),  neg(done(withdrawal_by_applicant(ID)))),  applicant(ID)), 
+    if(and(active(ID,  company),  done(withdrawal_by_applicant(ID))), 
+          [
+    confirm_withdrawal(start,  ID),
+    ?(done(confirm_withdrawal(end,  ID))),  withdrawal_sent(ID),  withdrawal_completed(ID)
   ]
+  , 
+          [
+  ]
+  )
+]
 ).
-
 
 /* SERVER FOR COMPANY
 
@@ -232,18 +252,82 @@ This implements a server for the company pool of the process model.
 proc(server_company, iconc(pi(id, [acquire(id, company), handle_company(id)]))).
 
 proc(company(ID),
-  [?(done(application_sent(ID))), check_validity(start, ID), ?(some(res, done(check_validity(end, ID, res)))), if(documents_ok(ID), [organize_documents(start, ID), ?(done(organize_documents(end, ID))), conc(assign_contact_partner(start, ID), verify_prerequisites(start, ID)), ?(and(done(assign_contact_partner(end, ID)), done(verify_prerequisites(end, ID)))), [check_application_for_interview(start, ID), ?(some(res, done(check_application_for_interview(end, ID, res)))), if(interview(ID), [plan_interview(start, ID), ?(done(plan_interview(end, ID))), execute_interview(start, ID), ?(some(res, done(execute_interview(end, ID, res)))), if(job_offer(ID), [obtain_approval(start, ID), ?(done(obtain_approval(end, ID))), validate_job_offer(start, ID), ?(some(res, done(validate_job_offer(end, ID, res)))), if(approval(ID), [produce_contract(start, ID), ?(done(produce_contract(end, ID))), contract_sent(ID), [?(done(signed_contract_sent(ID))), store_signed_contract(start, ID), ?(done(store_signed_contract(end, ID))), application_analysed(ID)]], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])]], [produce_letter_of_refusal(start, ID), ?(done(produce_letter_of_refusal(end, ID))), letter_of_refusal_sent(ID), application_analysed(ID)])]
+[
+  ?(done(application_sent(ID))),  check_validity(start,  ID),
+  ?(some(res,  done(check_validity(end,  ID,  res)))),
+  if(documents_ok(ID),
+   [
+    organize_documents(start,  ID),
+    ?(done(organize_documents(end,  ID))),
+    conc(assign_contact_partner(start,  ID),  verify_prerequisites(start,  ID)),
+    ?(and(done(assign_contact_partner(end,  ID)),  done(verify_prerequisites(end,  ID)))),
+     [
+      check_application_for_interview(start,  ID),
+      ?(some(res,  done(check_application_for_interview(end,  ID,  res)))),
+      if(interview(ID),
+       [
+        plan_interview(start,  ID),
+        ?(done(plan_interview(end,  ID))),  execute_interview(start,  ID),
+        ?(some(res,  done(execute_interview(end,  ID,  res)))),
+        if(job_offer(ID),
+         [
+          obtain_approval(start,  ID),
+          ?(done(obtain_approval(end,  ID))),  validate_job_offer(start,  ID),
+          ?(some(res,  done(validate_job_offer(end,  ID,  res)))),
+          if(approval(ID),
+           [
+            produce_contract(start,  ID),
+            ?(done(produce_contract(end,  ID))),  contract_sent(ID),
+             [
+              ?(done(signed_contract_sent(ID))),  store_signed_contract(start,  ID),
+              ?(done(store_signed_contract(end,  ID))),  application_analysed(ID)
+            ]
+          ]
+          ,
+           [
+            produce_letter_of_refusal(start,  ID),
+            ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+          ]
+          )
+        ]
+        ,
+         [
+          produce_letter_of_refusal(start,  ID),
+          ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+        ]
+        )
+      ]
+      ,
+       [
+        produce_letter_of_refusal(start,  ID),
+        ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+      ]
+      )
+    ]
+  ]
+  ,
+   [
+    produce_letter_of_refusal(start,  ID),
+    ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+  ]
+  )
+]
 ).
 
 proc(handle_company(ID),
-  [ gexec(and(active(ID, company), neg(done(withdrawal_sent(ID)))), company(ID)),
-    if(and(active(ID, company), done(withdrawal_sent(ID))),
-          [process_withdrawal(start, ID), ?(done(process_withdrawal(end, ID))), withdrawal_handled(ID)],
-          []
-      )
+[
+   gexec(and(active(ID,  company),  neg(done(withdrawal_sent(ID)))),  company(ID)), 
+    if(and(active(ID,  company),  done(withdrawal_sent(ID))), 
+          [
+    process_withdrawal(start,  ID),
+    ?(done(process_withdrawal(end,  ID))),  withdrawal_handled(ID)
   ]
+  , 
+          [
+  ]
+  )
+]
 ).
-
 
 
 prim_action(end_bpmn).

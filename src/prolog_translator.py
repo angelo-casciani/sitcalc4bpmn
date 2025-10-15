@@ -1,5 +1,6 @@
 import re
 from prolog_templates import *
+from prolog_formatter import format_proc_clause
 
 START_EVENT = 'startEvent'
 END_EVENT = 'endEvent'
@@ -526,18 +527,20 @@ class PrologTranslator:
         has_non_boolean_labels = False
         all_branches_labeled = True
         
+        labeled_branches = {}
         for flow_id in outgoing_flows:
             flow_info = process_data['sequence_flows'].get(flow_id, {})
             flow_label = flow_info.get('name', '').strip()
             
             if flow_id == default_flow:
-                # Default branch gets a special value
+                # Default branch - will assign value later based on labeled branches
                 branch_values[flow_id] = 'default'
             elif flow_label:
                 # Non-empty label - create a Prolog atom from it
                 labeled_count += 1
                 prologified = self._prologify(flow_label)
                 branch_values[flow_id] = prologified
+                labeled_branches[flow_id] = prologified
                 
                 # Check if this is a non-boolean label (not "yes", "no", "true", "false")
                 label_lower = flow_label.lower().strip()
@@ -547,6 +550,24 @@ class PrologTranslator:
                 # Empty label - use flow index or generate default name
                 all_branches_labeled = False
                 branch_values[flow_id] = f'branch_{len(branch_values) + 1}'
+        
+        # For functional fluents with a default branch, generate a meaningful default value
+        # based on the labeled branch (e.g., "familie_vorhanden" -> default is "keine_familie")
+        if default_flow and len(labeled_branches) == 1 and has_non_boolean_labels:
+            labeled_value = list(labeled_branches.values())[0]
+            # Generate a complementary value for the default branch
+            if labeled_value.startswith('ohne_'):
+                default_value = f"mit_{labeled_value[5:]}"
+            elif labeled_value.startswith('mit_'):
+                default_value = f"ohne_{labeled_value[4:]}"
+            elif labeled_value.startswith('nicht_'):
+                default_value = labeled_value[6:]  # Remove 'nicht_' prefix
+            elif '_vorhanden' in labeled_value:
+                default_value = labeled_value.replace('_vorhanden', '_nicht_vorhanden')
+            else:
+                # Generic: add 'keine_' prefix or similar
+                default_value = f"keine_{labeled_value}"
+            branch_values[default_flow] = default_value
         
         # Use functional fluent if:
         # 1. More than 2 branches with distinct labels, OR
@@ -579,18 +600,25 @@ class PrologTranslator:
                     # Boolean gateways: values are only "true"/"false" -> use rel_fluent
                     # Non-boolean gateways: values like "bewilligt"/"nicht_bewilligt" -> use fun_fluent
                     predecessors = self._find_true_predecessors(elem['id'], proc)
+                    
+                    # Try to get decision values from predecessor task
+                    decision_task = None
+                    decision_values = []
                     if predecessors and self._is_element_type(predecessors[0], TASK):
-                        # Get the decision values from the task
                         pred_task = predecessors[0]
                         _, decision_values = self._get_decision_values(pred_task['id'], proc)
-                        
+                        if decision_values:  # Only use if we found actual decision values
+                            decision_task = pred_task
+                    
+                    if decision_task:
+                        # Gateway has a predecessor decision task with known values
                         # Check if values are boolean (true/false only)
                         is_boolean = set(decision_values) <= {'true', 'false'}
                         
                         if is_boolean:
                             # Relational fluent for boolean gateways
                             fluents.add(f"{fluent_name}(_ID)")
-                            task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
+                            task_end = f"{self._prologify(decision_task['name'])}(end, ID, RESULT)"
                             causes.extend([
                                 f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
                                 f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
@@ -599,8 +627,10 @@ class PrologTranslator:
                             # Functional fluent for non-boolean gateways
                             fluents.add(f"fun:{fluent_name}(_ID)")
                             self.functional_fluents.add(fluent_name)  # Track for initially clauses
-                            task_end = f"{self._prologify(pred_task['name'])}(end, ID, VALUE)"
-                            causes.append(f"causes_val({task_end}, {fluent_name}(ID), VALUE, true).")
+                            task_end = f"{self._prologify(decision_task['name'])}(end, ID, VALUE)"
+                            # Constrain VALUE to be member of possible values
+                            values_str = '[' + ', '.join(decision_values) + ']'
+                            causes.append(f"causes_val({task_end}, {fluent_name}(ID), VALUE, member(VALUE, {values_str})).")
                     else:
                         # Gateway without predecessor task - check branch labels to determine type
                         # If branch values are non-boolean, use functional fluent
@@ -801,7 +831,9 @@ class PrologTranslator:
             
             # Build main flow procedure
             main_flow_proc = self._build_proc_for_element(main_start_id, process_data)
-            code += POOL_PROC.format(pool_name=p_name, proc_body=main_flow_proc)
+            # Format the proc clause for better readability
+            formatted_proc = format_proc_clause(f"{p_name}(ID)", main_flow_proc)
+            code += formatted_proc + "\n\n"
 
             # Build handle procedure with event subprocess support
             if not event_subprocesses:
@@ -857,7 +889,9 @@ class PrologTranslator:
                 
                 handle_proc_body = f"[ gexec({gexec_cond}, {p_name}(ID)),\n    if({if_cond},\n          {sub_proc_body},\n          []\n      )\n  ]"
             
-            code += HANDLE_PROC.format(pool_name=p_name, proc_body=handle_proc_body)
+            # Format the handle_proc clause for better readability
+            formatted_handle = format_proc_clause(f"handle_{p_name}(ID)", handle_proc_body)
+            code += formatted_handle + "\n\n"
         
         return code
 
@@ -888,9 +922,13 @@ class PrologTranslator:
                             return wait_proc
                     return wait_proc
             
-            # For regular start events (not message catch), wait for the exogenous start event
-            # before proceeding with the rest of the process
-            if elem_name:  # Only if start event has a name
+            # For regular start events (not message catch in main process), 
+            # do NOT wait for the exogenous start event - it's handled by the acquire mechanism
+            # The start event trigger (like job_needed) causes waiting() fluent, which is checked by acquire
+            # Only wait for start events if they're in a subprocess
+            is_in_subprocess = self._is_in_subprocess(elem_id, process_data)
+            
+            if elem_name and is_in_subprocess:  # Only wait if in subprocess
                 wait_proc = f"?(done({elem_name}(ID)))"
                 outgoing_flows = elem.get('outgoing', [])
                 if outgoing_flows:
@@ -906,7 +944,7 @@ class PrologTranslator:
                         return wait_proc
                 return wait_proc
             
-            # If start event has no name, skip it and go to next element
+            # If start event has no name or is in main process, skip it and go to next element
             outgoing_flows = elem.get('outgoing', [])
             if outgoing_flows:
                 next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
@@ -976,17 +1014,6 @@ class PrologTranslator:
                         next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
                         return self._build_proc_for_element(next_elem_id, process_data, visited)
                     
-                    # Build the loop body starting from the first diverging gateway after the converging gateway
-                    # but stopping before we loop back to the converging gateway
-                    first_div_gw_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
-                    loop_body_visited = visited.copy()
-                    loop_body_visited.add(elem_id)  # Don't revisit the converging gateway
-                    loop_body = self._build_proc_for_element(first_div_gw_id, process_data, loop_body_visited)
-                    
-                    # Get the exit branch (what follows after the loop)
-                    exit_start_id = process_data['sequence_flows'][exit_flow_id]['target']
-                    exit_proc = self._build_proc_for_element(exit_start_id, process_data, visited.copy())
-                    
                     # Determine the loop condition based on the decision gateway
                     # The condition should be TRUE to continue looping (follow loop_back branch)
                     cond_fluent = self._get_or_generate_gateway_fluent_name(div_gw, process_data)
@@ -1013,6 +1040,21 @@ class PrologTranslator:
                             # Track as binary fluent with true value for loop continuation
                             self.loop_fluents[cond_fluent] = 'true'
                     
+                    # Build the loop body, but stop at the decision gateway (div_gw_id)
+                    # We need to build only up to the decision point, then handle branching specially
+                    first_div_gw_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                    loop_body_visited = visited.copy()
+                    loop_body_visited.add(elem_id)  # Don't revisit the converging gateway
+                    
+                    # Build loop body but when we hit the decision gateway, only include the loop-back branch
+                    loop_body = self._build_loop_body_until_decision(
+                        first_div_gw_id, div_gw_id, loop_back_flow_id, process_data, loop_body_visited
+                    )
+                    
+                    # Get the exit branch (what follows after the loop)
+                    exit_start_id = process_data['sequence_flows'][exit_flow_id]['target']
+                    exit_proc = self._build_proc_for_element(exit_start_id, process_data, visited.copy())
+                    
                     # Construct: while(condition, loop_body) followed by exit_proc
                     while_construct = f"while({loop_condition}, {loop_body})"
                     
@@ -1033,41 +1075,150 @@ class PrologTranslator:
                 is_boolean = True
                 if predecessors and self._is_element_type(predecessors[0], TASK):
                     _, decision_values = self._get_decision_values(predecessors[0]['id'], process_data)
-                    is_boolean = set(decision_values) <= {'true', 'false'}
+                    # Only treat as boolean if we have actual decision values that are boolean
+                    # Empty decision_values means no decision task, fall back to branch analysis
+                    if decision_values:
+                        is_boolean = set(decision_values) <= {'true', 'false'}
+                    else:
+                        # No decision values, check branch labels
+                        non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
+                        is_boolean = not any(v not in ['true', 'false'] for v in non_default_values)
                 else:
                     # Gateway without predecessor - check branch values
                     non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
                     is_boolean = not any(v not in ['true', 'false'] for v in non_default_values)
                 
+                # Try to find convergence point for optimization
+                convergence_id, is_merge_gw = self._find_exclusive_convergence(elem_id, process_data)
+                
                 if is_boolean:
                     # Relational fluent - use if(fluent(ID), then, else)
                     default_flow_id = elem.get('default')
                     then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
-                    then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
-                    else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
-                    return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+                    
+                    if convergence_id:
+                        # Build branches only up to convergence, then continue with shared flow
+                        then_proc = self._build_proc_until_target(
+                            process_data['sequence_flows'][then_flow_id]['target'], 
+                            convergence_id, process_data, visited.copy()
+                        ) if then_flow_id else "[]"
+                        else_proc = self._build_proc_until_target(
+                            process_data['sequence_flows'][default_flow_id]['target'], 
+                            convergence_id, process_data, visited.copy()
+                        ) if default_flow_id else "[]"
+                        
+                        # Check if both branches are empty (direct to convergence)
+                        if then_proc == "[]" and else_proc == "[]":
+                            # No branch-specific logic, just continue with shared flow
+                            if is_merge_gw:
+                                conv_elem = process_data['elements'][convergence_id]
+                                if conv_elem.get('outgoing'):
+                                    next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                    return self._build_proc_for_element(next_id, process_data, visited)
+                            else:
+                                return self._build_proc_for_element(convergence_id, process_data, visited)
+                            return "[]"
+                        
+                        # Build the shared flow after convergence
+                        if is_merge_gw:
+                            # If convergence is a merge gateway, continue from its outgoing flow
+                            conv_elem = process_data['elements'][convergence_id]
+                            if conv_elem.get('outgoing'):
+                                next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                shared_proc = self._build_proc_for_element(next_id, process_data, visited)
+                            else:
+                                shared_proc = "[]"
+                        else:
+                            # Convergence is a regular element, include it in shared flow
+                            shared_proc = self._build_proc_for_element(convergence_id, process_data, visited)
+                        
+                        # Build if construct
+                        if_construct = f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+                        
+                        # Return as sequence: [branch_logic, shared_flow]
+                        if shared_proc and shared_proc != "[]":
+                            return f"[{if_construct}, {shared_proc}]"
+                        else:
+                            return if_construct
+                    else:
+                        # No convergence found, use original logic
+                        then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
+                        else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
+                        return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
                 else:
                     # Functional fluent - use if(fluent(ID) = value, ...)
                     default_flow_id = elem.get('default')
                     default_proc = None
                     non_default_branches = []
                     
-                    for flow_id in outgoing_flows:
-                        target_id = process_data['sequence_flows'][flow_id]['target']
-                        branch_proc = self._build_proc_for_element(target_id, process_data, visited.copy())
-                        branch_value = branch_values.get(flow_id, 'unknown')
+                    if convergence_id:
+                        # Build branches only up to convergence point
+                        all_branches_empty = True
+                        for flow_id in outgoing_flows:
+                            target_id = process_data['sequence_flows'][flow_id]['target']
+                            branch_proc = self._build_proc_until_target(target_id, convergence_id, process_data, visited.copy())
+                            branch_value = branch_values.get(flow_id, 'unknown')
+                            
+                            if branch_proc != "[]":
+                                all_branches_empty = False
+                            
+                            if flow_id == default_flow_id:
+                                default_proc = branch_proc
+                            else:
+                                non_default_branches.append((branch_value, branch_proc))
                         
-                        if flow_id == default_flow_id:
-                            default_proc = branch_proc
+                        # If all branches are empty (go directly to convergence), skip the if-statement
+                        if all_branches_empty:
+                            if is_merge_gw:
+                                conv_elem = process_data['elements'][convergence_id]
+                                if conv_elem.get('outgoing'):
+                                    next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                    return self._build_proc_for_element(next_id, process_data, visited)
+                            else:
+                                return self._build_proc_for_element(convergence_id, process_data, visited)
+                            return "[]"
+                        
+                        # Build nested if statements for branch selection
+                        result = default_proc if default_proc else "[]"
+                        for branch_value, branch_proc in reversed(non_default_branches):
+                            result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
+                        
+                        # Build the shared flow after convergence
+                        if is_merge_gw:
+                            # If convergence is a merge gateway, continue from its outgoing flow
+                            conv_elem = process_data['elements'][convergence_id]
+                            if conv_elem.get('outgoing'):
+                                next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                shared_proc = self._build_proc_for_element(next_id, process_data, visited)
+                            else:
+                                shared_proc = "[]"
                         else:
-                            non_default_branches.append((branch_value, branch_proc))
-                    
-                    # Build nested if statements
-                    result = default_proc if default_proc else "[]"
-                    for branch_value, branch_proc in reversed(non_default_branches):
-                        result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
-                    
-                    return result
+                            # Convergence is a regular element, include it in shared flow
+                            shared_proc = self._build_proc_for_element(convergence_id, process_data, visited)
+                        
+                        # Return as sequence: [branch_selection_logic, shared_flow]
+                        if shared_proc and shared_proc != "[]":
+                            return f"[{result}, {shared_proc}]"
+                        else:
+                            return result
+                    else:
+                        # No convergence found, use original logic (full duplication)
+                        for flow_id in outgoing_flows:
+                            target_id = process_data['sequence_flows'][flow_id]['target']
+                            branch_proc = self._build_proc_for_element(target_id, process_data, visited.copy())
+                            branch_value = branch_values.get(flow_id, 'unknown')
+                            
+                            if flow_id == default_flow_id:
+                                default_proc = branch_proc
+                            else:
+                                non_default_branches.append((branch_value, branch_proc))
+                        
+                        # Build nested if statements
+                        result = default_proc if default_proc else "[]"
+                        for branch_value, branch_proc in reversed(non_default_branches):
+                            result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
+                        
+                        return result
         elif self._is_element_type(elem, EVENT_BASED_GATEWAY):
             branches = []
             for flow_id in outgoing_flows:
@@ -1097,6 +1248,15 @@ class PrologTranslator:
                 wait_proc = f"?({branch_terminators[0]})"
             else:
                 wait_proc = ""
+            
+            # Handle case where join gateway is not found
+            if join_gateway_id is None:
+                # No join gateway found - just run branches in parallel without explicit join
+                conc_part = f"conc({', '.join(branch_starts)})" if len(branch_starts) > 1 else branch_starts[0] if branch_starts else "[]"
+                if wait_proc:
+                    return f"[{conc_part}, {wait_proc}]"
+                else:
+                    return conc_part
             
             join_elem = process_data['elements'][join_gateway_id]
             if join_elem['outgoing']:
@@ -1326,6 +1486,464 @@ class PrologTranslator:
                         visited.add(next_id)
         return None
 
+    def _build_loop_body_until_decision(self, start_id, decision_gw_id, loop_back_flow_id, process_data, visited):
+        """
+        Build loop body from start_id until we reach decision_gw_id.
+        At the decision gateway, only follow the loop-back branch (not the exit branch).
+        
+        Args:
+            start_id: Starting element ID
+            decision_gw_id: The decision gateway ID that controls loop exit
+            loop_back_flow_id: The flow ID that loops back
+            process_data: Process data dictionary
+            visited: Set of already visited element IDs
+            
+        Returns:
+            Prolog process string for the loop body
+        """
+        if start_id in visited:
+            return "[]"
+        
+        if start_id == decision_gw_id:
+            # Reached the decision gateway - only follow loop-back branch
+            decision_gw = process_data['elements'][decision_gw_id]
+            is_functional, branch_values = self._analyze_gateway_branches(decision_gw_id, process_data)
+            cond_fluent = self._get_or_generate_gateway_fluent_name(decision_gw, process_data)
+            
+            # Find which flow is the loop-back
+            loop_back_target = process_data['sequence_flows'][loop_back_flow_id]['target']
+            loop_back_value = branch_values.get(loop_back_flow_id, 'unknown')
+            
+            # Build only the loop-back branch
+            loop_back_proc = self._build_proc_for_element(loop_back_target, process_data, visited.copy())
+            
+            # For the decision gateway in the loop, we generate an if-statement
+            # but the exit branch should just be empty (break from loop)
+            if is_functional:
+                # Build if-statement with only loop-back branch having content
+                outgoing_flows = decision_gw.get('outgoing', [])
+                default_flow_id = decision_gw.get('default')
+                
+                # Identify which branch is loop-back vs exit
+                exit_flow_id = next((f for f in outgoing_flows if f != loop_back_flow_id), None)
+                exit_value = branch_values.get(exit_flow_id, 'unknown') if exit_flow_id else 'unknown'
+                
+                # Create if-statement: loop-back has content, exit is empty
+                if loop_back_flow_id == default_flow_id:
+                    # Loop-back is default
+                    return f"if({cond_fluent}(ID) = {exit_value}, [], {loop_back_proc})"
+                else:
+                    # Loop-back is non-default
+                    return f"if({cond_fluent}(ID) = {loop_back_value}, {loop_back_proc}, [])"
+            else:
+                # Boolean gateway - similar logic
+                default_flow_id = decision_gw.get('default')
+                if loop_back_flow_id == default_flow_id:
+                    return f"if({cond_fluent}(ID), [], {loop_back_proc})"
+                else:
+                    return f"if({cond_fluent}(ID), {loop_back_proc}, [])"
+        
+        # Normal processing
+        visited.add(start_id)
+        elem = process_data['elements'].get(start_id)
+        
+        if not elem:
+            return "[]"
+        
+        # Handle EXCLUSIVE GATEWAY (non-decision)
+        if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+            outgoing_flows = elem.get('outgoing', [])
+            incoming_flows = elem.get('incoming', [])
+            is_merge = len(incoming_flows) > 1 and len(outgoing_flows) == 1
+            
+            if is_merge:
+                # Merge gateway - just continue
+                next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+                return self._build_loop_body_until_decision(
+                    next_elem_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                )
+            else:
+                # Split gateway - build with convergence optimization
+                cond_fluent = self._get_or_generate_gateway_fluent_name(elem, process_data)
+                is_functional, branch_values = self._analyze_gateway_branches(start_id, process_data)
+                
+                # Check if boolean or functional
+                predecessors = self._find_true_predecessors(start_id, process_data)
+                is_boolean = True
+                if predecessors and self._is_element_type(predecessors[0], TASK):
+                    _, decision_values = self._get_decision_values(predecessors[0]['id'], process_data)
+                    is_boolean = set(decision_values) <= {'true', 'false'}
+                else:
+                    non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
+                    is_boolean = not any(v not in ['true', 'false'] for v in non_default_values)
+                
+                # Find convergence
+                convergence_id, is_merge_gw = self._find_exclusive_convergence(start_id, process_data)
+                
+                if convergence_id:
+                    # Build branches up to convergence
+                    default_flow_id = elem.get('default')
+                    
+                    if is_functional:
+                        # Functional fluent
+                        default_proc = None
+                        non_default_branches = []
+                        
+                        for flow_id in outgoing_flows:
+                            target_id = process_data['sequence_flows'][flow_id]['target']
+                            branch_proc = self._build_proc_until_target(target_id, convergence_id, process_data, visited.copy())
+                            branch_value = branch_values.get(flow_id, 'unknown')
+                            
+                            if flow_id == default_flow_id:
+                                default_proc = branch_proc
+                            else:
+                                non_default_branches.append((branch_value, branch_proc))
+                        
+                        result = default_proc if default_proc else "[]"
+                        for branch_value, branch_proc in reversed(non_default_branches):
+                            result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
+                        
+                        # Build shared flow after convergence
+                        if is_merge_gw:
+                            conv_elem = process_data['elements'][convergence_id]
+                            if conv_elem.get('outgoing'):
+                                next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                shared_proc = self._build_loop_body_until_decision(
+                                    next_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                                )
+                            else:
+                                shared_proc = "[]"
+                        else:
+                            shared_proc = self._build_loop_body_until_decision(
+                                convergence_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                            )
+                        
+                        if shared_proc and shared_proc != "[]":
+                            return f"[{result}, {shared_proc}]"
+                        else:
+                            return result
+                    else:
+                        # Boolean fluent - similar logic
+                        then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                        then_proc = self._build_proc_until_target(
+                            process_data['sequence_flows'][then_flow_id]['target'],
+                            convergence_id, process_data, visited.copy()
+                        ) if then_flow_id else "[]"
+                        else_proc = self._build_proc_until_target(
+                            process_data['sequence_flows'][default_flow_id]['target'],
+                            convergence_id, process_data, visited.copy()
+                        ) if default_flow_id else "[]"
+                        
+                        if_construct = f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+                        
+                        # Build shared flow
+                        if is_merge_gw:
+                            conv_elem = process_data['elements'][convergence_id]
+                            if conv_elem.get('outgoing'):
+                                next_id = process_data['sequence_flows'][conv_elem['outgoing'][0]]['target']
+                                shared_proc = self._build_loop_body_until_decision(
+                                    next_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                                )
+                            else:
+                                shared_proc = "[]"
+                        else:
+                            shared_proc = self._build_loop_body_until_decision(
+                                convergence_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                            )
+                        
+                        if shared_proc and shared_proc != "[]":
+                            return f"[{if_construct}, {shared_proc}]"
+                        else:
+                            return if_construct
+                else:
+                    # No convergence - shouldn't happen in well-formed BPMN
+                    # Fall back to building all branches fully
+                    return self._build_proc_for_element(start_id, process_data, visited.copy())
+        
+        # Continue with normal element processing
+        elem = process_data['elements'].get(start_id)
+        
+        if not elem:
+            return "[]"
+        
+        # Build current element
+        current_proc = ""
+        
+        if self._is_element_type(elem, TASK):
+            elem_name = self._prologify(elem['name'])
+            is_decision = self._is_decision_task(elem['id'], process_data)
+            if is_decision:
+                wait_action = f"?(some(res, done({elem_name}(end, ID, res))))"
+            else:
+                wait_action = f"?(done({elem_name}(end, ID)))"
+            current_proc = f"[{elem_name}(start, ID), {wait_action}]"
+        elif self._is_element_type(elem, START_EVENT):
+            current_proc = ""
+        elif self._is_element_type(elem, END_EVENT):
+            elem_name = self._prologify(elem.get('name', 'end_event'))
+            if not elem_name or elem_name == 'end_event':
+                current_proc = f"end_event(ID)"
+            else:
+                current_proc = f"{elem_name}(ID)"
+        elif self._is_element_type(elem, PARALLEL_GATEWAY):
+            # Handle parallel gateway splits
+            join_gateway_id = self._find_join_gateway(start_id, process_data)
+            if join_gateway_id:
+                outgoing_flows = elem.get('outgoing', [])
+                branch_starts = []
+                branch_terminators = []
+                
+                for flow_id in outgoing_flows:
+                    branch_start_id = process_data['sequence_flows'][flow_id]['target']
+                    branch_start_elem = process_data['elements'][branch_start_id]
+                    if self._is_element_type(branch_start_elem, TASK):
+                        branch_start_name = self._prologify(branch_start_elem['name'])
+                        branch_starts.append(f"{branch_start_name}(start, ID)")
+                        branch_terminators.append(f"done({branch_start_name}(end, ID))")
+                
+                if len(branch_terminators) > 1:
+                    wait_proc = f"?(and({', '.join(sorted(branch_terminators))}))"
+                elif branch_terminators:
+                    wait_proc = f"?({branch_terminators[0]})"
+                else:
+                    wait_proc = ""
+                
+                join_elem = process_data['elements'][join_gateway_id]
+                if join_elem.get('outgoing'):
+                    next_elem_id = process_data['sequence_flows'][join_elem['outgoing'][0]]['target']
+                    next_proc = self._build_loop_body_until_decision(
+                        next_elem_id, decision_gw_id, loop_back_flow_id, process_data, visited
+                    )
+                else:
+                    next_proc = "[]"
+                
+                conc_part = f"conc({', '.join(branch_starts)})" if len(branch_starts) > 1 else branch_starts[0] if branch_starts else "[]"
+                
+                if wait_proc and next_proc != "[]":
+                    return f"[{conc_part}, {wait_proc}, {next_proc}]"
+                elif wait_proc:
+                    return f"[{conc_part}, {wait_proc}]"
+                else:
+                    return conc_part if next_proc == "[]" else f"[{conc_part}, {next_proc}]"
+        
+        # Get outgoing and continue
+        outgoing_flows = elem.get('outgoing', [])
+        if not outgoing_flows:
+            return current_proc or "[]"
+        
+        # Continue with next element
+        next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
+        next_proc = self._build_loop_body_until_decision(
+            next_elem_id, decision_gw_id, loop_back_flow_id, process_data, visited
+        )
+        
+        # Combine current with next
+        if not current_proc:
+            return next_proc
+        if next_proc == "[]":
+            return current_proc
+        
+        current_is_list = current_proc.startswith('[') and not current_proc.startswith('[?')
+        next_is_list = next_proc.startswith('[') and not next_proc.startswith('[?')
+        
+        if current_is_list and next_is_list:
+            return f"[{current_proc[1:-1]}, {next_proc[1:-1]}]"
+        elif current_is_list:
+            return f"[{current_proc[1:-1]}, {next_proc}]"
+        elif next_is_list:
+            return f"[{current_proc}, {next_proc[1:-1]}]"
+        else:
+            return f"[{current_proc}, {next_proc}]"
+    
+    def _build_proc_until_target(self, start_id, target_id, process_data, visited):
+        """
+        Build process from start_id up to (but not including) target_id.
+        Stops when target_id is reached.
+        
+        Args:
+            start_id: Starting element ID
+            target_id: Target element ID to stop at (not included in result)
+            process_data: Process data dictionary
+            visited: Set of already visited element IDs
+            
+        Returns:
+            Prolog process string representing the path from start to target
+        """
+        if start_id == target_id:
+            return "[]"
+        
+        if start_id in visited:
+            return "[]"
+        
+        visited.add(start_id)
+        elem = process_data['elements'].get(start_id)
+        
+        if not elem:
+            return "[]"
+        
+        # Build current element's process
+        current_proc = ""
+        
+        if self._is_element_type(elem, TASK):
+            elem_name = self._prologify(elem['name'])
+            # Check if this is a decision task
+            is_decision = self._is_decision_task(elem['id'], process_data)
+            if is_decision:
+                wait_action = f"?(some(res, done({elem_name}(end, ID, res))))"
+            else:
+                wait_action = f"?(done({elem_name}(end, ID)))"
+            current_proc = f"[{elem_name}(start, ID), {wait_action}]"
+        elif self._is_element_type(elem, START_EVENT):
+            current_proc = ""  # Start events handled in preconditions
+        elif self._is_element_type(elem, END_EVENT):
+            elem_name = self._prologify(elem.get('name', 'end_event'))
+            if not elem_name or elem_name == 'end_event':
+                current_proc = f"end_event(ID)"
+            else:
+                current_proc = f"{elem_name}(ID)"
+        
+        # Get outgoing flows
+        outgoing_flows = elem.get('outgoing', [])
+        
+        if not outgoing_flows:
+            return current_proc or "[]"
+        
+        # Check if any outgoing flow leads directly to target
+        next_procs = []
+        for flow_id in outgoing_flows:
+            next_id = process_data['sequence_flows'][flow_id]['target']
+            if next_id == target_id:
+                # Reached target, stop here
+                return current_proc or "[]"
+            else:
+                # Continue recursively
+                next_proc = self._build_proc_until_target(next_id, target_id, process_data, visited.copy())
+                if next_proc and next_proc != "[]":
+                    next_procs.append(next_proc)
+        
+        # Combine current with next
+        if not next_procs:
+            return current_proc or "[]"
+        
+        if len(next_procs) == 1:
+            next_proc = next_procs[0]
+        else:
+            # Multiple paths - shouldn't happen in well-formed process up to convergence
+            next_proc = next_procs[0]
+        
+        if not current_proc:
+            return next_proc
+        
+        if next_proc == "[]":
+            return current_proc
+        
+        # Combine current and next
+        current_is_list = current_proc.startswith('[') and not current_proc.startswith('[?')
+        next_is_list = next_proc.startswith('[') and not next_proc.startswith('[?')
+        
+        if current_is_list and next_is_list:
+            return f"[{current_proc[1:-1]}, {next_proc[1:-1]}]"
+        elif current_is_list:
+            return f"[{current_proc[1:-1]}, {next_proc}]"
+        elif next_is_list:
+            return f"[{current_proc}, {next_proc[1:-1]}]"
+        else:
+            return f"[{current_proc}, {next_proc}]"
+    
+    def _find_exclusive_convergence(self, split_gateway_id, process_data):
+        """
+        Find the convergence point (merge gateway or common element) where all branches 
+        from an exclusive gateway reconverge.
+        
+        Uses a level-by-level BFS approach to find the EARLIEST common element
+        reachable from all branches at the same depth.
+        
+        Returns: (convergence_id, is_gateway) where:
+            - convergence_id: the element ID where branches merge
+            - is_gateway: True if it's an exclusive merge gateway, False if it's a regular element
+        """
+        split_elem = process_data['elements'].get(split_gateway_id)
+        if not split_elem:
+            return None, False
+        
+        outgoing_flows = split_elem.get('outgoing', [])
+        if len(outgoing_flows) < 2:
+            return None, False
+        
+        # Trace each branch independently level-by-level
+        branch_levels = []  # List of [{elem_ids at depth 0}, {elem_ids at depth 1}, ...]
+        
+        for flow_id in outgoing_flows:
+            target_id = process_data['sequence_flows'][flow_id]['target']
+            levels = self._trace_by_levels(target_id, process_data, max_depth=20)
+            branch_levels.append(levels)
+        
+        # Find the earliest depth where all branches reach a common element
+        max_depth = max(len(levels) for levels in branch_levels)
+        
+        for depth in range(max_depth):
+            # Get elements at this depth from each branch
+            elements_at_depth = []
+            for levels in branch_levels:
+                if depth < len(levels):
+                    elements_at_depth.append(levels[depth])
+                else:
+                    elements_at_depth.append(set())
+            
+            # Find intersection (common elements at this depth)
+            if not elements_at_depth:
+                continue
+            
+            common_at_depth = elements_at_depth[0].intersection(*elements_at_depth[1:])
+            
+            if common_at_depth:
+                # Found convergence at this depth
+                # Prefer merge gateways over regular elements
+                for elem_id in common_at_depth:
+                    elem = process_data['elements'].get(elem_id)
+                    if elem and self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                        # Check if it's a merge (multiple incoming)
+                        if len(elem.get('incoming', [])) > 1:
+                            return elem_id, True
+                
+                # No merge gateway found, return first common element
+                conv_id = next(iter(common_at_depth))
+                return conv_id, False
+        
+        return None, False
+    
+    def _trace_by_levels(self, start_id, process_data, max_depth=20):
+        """
+        Trace forward from start_id and return elements organized by depth level.
+        Returns: [{elem_ids at depth 0}, {elem_ids at depth 1}, ...]
+        """
+        levels = []
+        current_level = {start_id}
+        visited = set()
+        
+        for depth in range(max_depth):
+            if not current_level:
+                break
+            
+            levels.append(current_level.copy())
+            next_level = set()
+            
+            for elem_id in current_level:
+                if elem_id in visited:
+                    continue
+                visited.add(elem_id)
+                
+                elem = process_data['elements'].get(elem_id)
+                if elem:
+                    for flow_id in elem.get('outgoing', []):
+                        next_id = process_data['sequence_flows'].get(flow_id, {}).get('target')
+                        if next_id and next_id not in visited:
+                            next_level.add(next_id)
+            
+            current_level = next_level
+        
+        return levels
+    
     def _generate_initial_state(self, fluents):
         code = INITIAL_SITUATION
         
@@ -1485,8 +2103,13 @@ class PrologTranslator:
         # Add: not waiting in any pool
         conditions.append("neg(waiting(ID, POOL))")
         
-        # Add: active in the variable pool (covers any pool where the exception can trigger)
-        # This means the instance must be active in at least one pool, not all pools
+        # Add: active in the current pool (where the exception is triggered)
+        # This is crucial to ensure the exception can only be triggered from the originating pool
+        if pool_obj:
+            conditions.append(f"active(ID, {current_pool_name})")
+        
+        # Add: active in the variable pool (covers any pool where the exception can propagate)
+        # This means the instance must be active in at least one pool
         conditions.append("active(ID, POOL)")
         
         # Add: exception not already triggered
@@ -1574,7 +2197,8 @@ class PrologTranslator:
         next_elem_id = process_data['sequence_flows'][task['outgoing'][0]]['target']
         next_elem = process_data['elements'].get(next_elem_id)
         
-        if not (next_elem and 'exclusiveGateway' in next_elem['type']):
+        # Check if next element is a diverging exclusive gateway (not a convergence)
+        if not (next_elem and 'exclusiveGateway' in next_elem['type'] and len(next_elem.get('outgoing', [])) > 1):
             return False, []
         
         # Use existing gateway analysis

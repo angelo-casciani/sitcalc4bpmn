@@ -456,9 +456,13 @@ class IndiGologReasoner:
         """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_file:
             temp_file_path = temp_file.name
-            temp_file.write(f":- discontiguous proc/2.\n")
-            temp_file.write(f"proc({proc_name}, {action_list_str}).\n\n")
-            temp_file.write(":- initialization(run_legality_check).\n\n")
+            # Use assertz to add the procedure dynamically at initialization time
+            # This avoids redef‌ining proc/2 which would invalidate the running/1 rules
+            temp_file.write(f":- dynamic proc/2.\n")
+            temp_file.write(f":- initialization(setup_and_run).\n\n")
+            temp_file.write(f"setup_and_run :-\n")
+            temp_file.write(f"    assertz(proc({proc_name}, {action_list_str})),\n")
+            temp_file.write(f"    run_legality_check.\n\n")
             temp_file.write("run_legality_check :-\n")
             temp_file.write("    writeln('Running legality check...'),\n")
             temp_file.write("    writeln(''),\n")
@@ -519,23 +523,35 @@ class IndiGologReasoner:
             print(f"Prolog procedure: proc({proc_name}, {action_list_str}).")
             print(f"Command: {' '.join(cmd)}\n")
             
-            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=20)
             
             if not exec_success:
                 return False, full_output
             
             self._print_output_section(full_output)
             
+            # Check IndiGolog execution status
+            program_completed = "Program has executed to completion" in full_output
             program_failed = "PROGRAM: Program fails" in full_output
-            result_success = "RESULT: SUCCESS" in full_output
-            result_failure = "RESULT: FAILURE" in full_output
             
-            if result_failure or program_failed:
-                success = False
-            elif result_success and returncode == 0 and not program_failed:
+            # Determine success based on IndiGolog's execution result
+            if program_completed:
+                # IndiGolog completed successfully -> sequence is legal
                 success = True
+            elif program_failed:
+                # IndiGolog program failed -> sequence is illegal
+                success = False
             else:
-                success = returncode == 0
+                # Fallback: use RESULT markers from temp file execution
+                result_success = "RESULT: SUCCESS" in full_output
+                result_failure = "RESULT: FAILURE" in full_output
+                
+                if result_success and returncode == 0:
+                    success = True
+                elif result_failure or returncode != 0:
+                    success = False
+                else:
+                    success = returncode == 0
         
             if success:
                 status_line = "\n✓ Action sequence is EXECUTABLE (legal)"
@@ -789,7 +805,7 @@ class IndiGologReasoner:
             print("Executing conformance check...")
             print(f"Command: {' '.join(cmd)}\n")
             
-            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=20)
             
             if not exec_success:
                 return False, full_output
@@ -880,9 +896,9 @@ class IndiGologReasoner:
             temp_file.write("    initialize(evaluator),\n")
             temp_file.write("    writeln('Executing property verification...'),\n")
             temp_file.write("    writeln(''),\n")
-            temp_file.write(f"    format('Calling: time(do(~w, [], H))~n~n', [{proc_name}]),\n")
+            temp_file.write(f"    format('Calling: time(do(~w, [], H))~n~n', [property_verification]),\n")
             temp_file.write("    (\n")
-            temp_file.write(f"        time(do({proc_name}, [], H)) ->\n")
+            temp_file.write(f"        time(do(property_verification, [], H)) ->\n")
             temp_file.write("        (\n")
             temp_file.write("            writeln(''),\n")
             temp_file.write("            length(H, Len),\n")
@@ -926,7 +942,7 @@ class IndiGologReasoner:
             print(f"Property: {property_expr}")
             print(f"Command: {' '.join(cmd)}\n")
             
-            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=120)
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=20)
             
             try:
                 os.unlink(temp_model_file_path)

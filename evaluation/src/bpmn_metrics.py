@@ -7,8 +7,8 @@ This module parses BPMN XML files and extracts:
 """
 
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
-from typing import List, Dict, Set, Optional
+from dataclasses import dataclass, field
+from typing import List, Dict, Set, Optional, Tuple
 import re
 
 
@@ -34,6 +34,7 @@ class BPMNMetrics:
     start_event_names: List[str]  # Separate list for start events
     start_event_ids: List[str]
     first_task_after_start: Optional[str] = None  # First task in execution order
+    parallel_branches: List[List[str]] = field(default_factory=list)  # List of task groups that can execute in parallel
     
     def total_elements(self) -> int:
         """Return total number of elements."""
@@ -184,6 +185,9 @@ class BPMNMetricsExtractor:
         # Find the first task after the start event
         first_task_name = self._find_first_task_after_start(start_event_ids)
         
+        # Extract parallel branches
+        parallel_branches = self._extract_parallel_branches()
+        
         return BPMNMetrics(
             num_tasks=len(task_elements),
             num_exclusive_gateways=len(exclusive_gateways),
@@ -201,7 +205,8 @@ class BPMNMetricsExtractor:
             event_ids=event_ids,
             start_event_names=start_event_names,
             start_event_ids=start_event_ids,
-            first_task_after_start=first_task_name
+            first_task_after_start=first_task_name,
+            parallel_branches=parallel_branches
         )
     
     def _find_all_elements(self, tag_name: str) -> List[ET.Element]:
@@ -304,6 +309,76 @@ class BPMNMetricsExtractor:
                     if task_name:
                         return task_name
         
+        return None
+    
+    def _extract_parallel_branches(self) -> List[List[str]]:
+        """Extract groups of tasks that can execute in parallel.
+        
+        Returns:
+            List of task name lists, where each inner list contains tasks that can execute in parallel
+        """
+        parallel_groups = []
+        
+        # Find all parallel gateways
+        parallel_gateways = self._find_all_elements('parallelGateway')
+        sequence_flows = self._find_all_elements('sequenceFlow')
+        
+        # Build a map of sequence flows for quick lookup
+        flow_map = {}
+        for flow in sequence_flows:
+            flow_id = self._get_attribute(flow, 'id')
+            source = self._get_attribute(flow, 'sourceRef')
+            target = self._get_attribute(flow, 'targetRef')
+            flow_map[flow_id] = {'source': source, 'target': target}
+        
+        # Find diverging parallel gateways (splits)
+        for gw in parallel_gateways:
+            gw_id = self._get_attribute(gw, 'id')
+            direction = self._get_attribute(gw, 'gatewayDirection')
+            
+            # Only process diverging (split) gateways
+            if direction == 'Diverging':
+                # Get outgoing flows from this gateway
+                outgoing_elems = gw.findall('.//bpmn:outgoing', self.BPMN_NS)
+                if not outgoing_elems:
+                    continue
+                
+                # Track tasks in each branch
+                branch_tasks = []
+                
+                for out_elem in outgoing_elems:
+                    flow_id = out_elem.text
+                    if not flow_id or flow_id not in flow_map:
+                        continue
+                    
+                    # Follow this flow to find the first task
+                    target_id = flow_map[flow_id]['target']
+                    task_name = self._find_task_name_by_id(target_id)
+                    
+                    if task_name:
+                        branch_tasks.append(task_name)
+                
+                # Only add if we found multiple parallel branches with tasks
+                if len(branch_tasks) >= 2:
+                    parallel_groups.append(branch_tasks)
+        
+        return parallel_groups
+    
+    def _find_task_name_by_id(self, task_id: str) -> Optional[str]:
+        """Find a task name by its ID.
+        
+        Args:
+            task_id: The ID of the task to find
+            
+        Returns:
+            The task name, or None if not found or not a task
+        """
+        for task_type in ['task', 'userTask', 'serviceTask', 'manualTask', 'scriptTask', 
+                         'businessRuleTask', 'sendTask', 'receiveTask']:
+            tasks = self._find_all_elements(task_type)
+            for task in tasks:
+                if self._get_attribute(task, 'id') == task_id:
+                    return self._get_attribute(task, 'name')
         return None
 
 

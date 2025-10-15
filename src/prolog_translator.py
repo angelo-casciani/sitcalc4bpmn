@@ -15,6 +15,12 @@ SUBPROCESS = 'subProcess'
 class PrologTranslator:
     def __init__(self, parser):
         self.parser = parser
+        # Track loop-controlling fluents: {fluent_name: loop_continuing_value}
+        self.loop_fluents = {}
+        # Track ALL gateway fluents: {fluent_name: default_value}
+        self.gateway_fluents = {}
+        # Track functional (non-boolean) gateway fluents
+        self.functional_fluents = set()
 
     def _prologify(self, name):
         if not name: return ""
@@ -84,9 +90,21 @@ class PrologTranslator:
         return None
     
     def _get_done_condition_for_element(self, elem):
-        """Generate the done() condition for a predecessor element."""
+        """Generate the done() condition for a predecessor element.
+        For decision tasks (those with 3-parameter end actions), uses existential quantification
+        over the result parameter: some(res, done(task(end, ID, res)))"""
         if self._is_element_type(elem, TASK):
-            return f"done({self._prologify(elem['name'])}(end, ID))"
+            task_name = self._prologify(elem['name'])
+            # Check if this is a decision task by finding its process context
+            # We need to check across all processes since elem might not have process context
+            for proc_id, process in self.parser.processes.items():
+                if elem['id'] in process['elements']:
+                    if self._is_decision_task(elem['id'], process):
+                        # Decision task: use existential quantification over the result
+                        return f"some(res, done({task_name}(end, ID, res)))"
+                    break
+            # Regular task: 2 parameters
+            return f"done({task_name}(end, ID))"
         elif self._is_element_type(elem, INTERMEDIATE_THROW_EVENT):
             return f"done({self._prologify(elem['name'])}(ID))"
         elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
@@ -190,6 +208,12 @@ class PrologTranslator:
         return "\n".join(result)
 
     def translate(self):
+        # Pre-pass: detect loop structures to identify loop-controlling fluents
+        # This must happen before generating fluents/causes so initially clauses can be added
+        self._detect_all_loops()
+        # Pre-pass: detect ALL gateways to identify gateway fluents needing initialization
+        self._detect_all_gateways()
+        
         code = self._generate_header()
         code += self._generate_fluents_and_causes()
         code += self._generate_actions_and_preconditions()
@@ -197,6 +221,94 @@ class PrologTranslator:
         code += self._generate_footer()
         return code
 
+    def _detect_all_loops(self):
+        """Pre-pass to detect all loop structures and identify loop-controlling fluents.
+        This populates self.loop_fluents before code generation begins."""
+        for proc_id, process in self.parser.processes.items():
+            for elem_id, elem in process['elements'].items():
+                if not self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                    continue
+                
+                incoming_flows = elem.get('incoming', [])
+                outgoing_flows = elem.get('outgoing', [])
+                is_merge = len(incoming_flows) > 1 and len(outgoing_flows) == 1
+                
+                if not is_merge:
+                    continue
+                
+                # Check if this is part of a loop structure
+                is_loop, div_gw_id, loop_back_flow, exit_flow = self._detect_loop_structure(elem_id, process)
+                
+                if not is_loop:
+                    continue
+                
+                # Found a loop! Extract the loop-controlling fluent and value
+                div_gw = process['elements'][div_gw_id]
+                is_functional, branch_values = self._analyze_gateway_branches(div_gw_id, process)
+                
+                # Determine which flows loop back and which exit
+                div_gw_outgoing = div_gw.get('outgoing', [])
+                loop_back_flow_id = None
+                
+                for flow_id in div_gw_outgoing:
+                    if self._flow_reaches_target(flow_id, elem_id, process, max_depth=50):
+                        loop_back_flow_id = flow_id
+                        break
+                
+                if not loop_back_flow_id:
+                    continue
+                
+                # Get the fluent name
+                cond_fluent = self._get_or_generate_gateway_fluent_name(div_gw, process)
+                
+                # Determine the loop-continuing value
+                if is_functional:
+                    loop_value = branch_values.get(loop_back_flow_id, 'branch_1')
+                    self.loop_fluents[cond_fluent] = loop_value
+                else:
+                    default_flow = div_gw.get('default')
+                    if loop_back_flow_id == default_flow:
+                        self.loop_fluents[cond_fluent] = 'false'
+                    else:
+                        self.loop_fluents[cond_fluent] = 'true'
+
+    def _detect_all_gateways(self):
+        """Pre-pass to detect all exclusive gateways and their default values.
+        This populates self.gateway_fluents before code generation begins."""
+        for proc_id, process in self.parser.processes.items():
+            for elem_id, elem in process['elements'].items():
+                if not self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                    continue
+                
+                outgoing_flows = elem.get('outgoing', [])
+                
+                # Only process diverging gateways (splits)
+                if len(outgoing_flows) <= 1:
+                    continue
+                
+                # Get the fluent name
+                cond_fluent = self._get_or_generate_gateway_fluent_name(elem, process)
+                
+                # Skip if already tracked as a loop fluent (loop value takes precedence)
+                if cond_fluent in self.loop_fluents:
+                    continue
+                
+                # Analyze gateway branches to determine default value
+                is_functional, branch_values = self._analyze_gateway_branches(elem_id, process)
+                
+                if is_functional:
+                    # For functional gateways, use the first branch value
+                    if outgoing_flows and outgoing_flows[0] in branch_values:
+                        default_value = branch_values[outgoing_flows[0]]
+                        self.gateway_fluents[cond_fluent] = default_value
+                else:
+                    # For boolean gateways, use default flow if specified, otherwise 'true'
+                    default_flow = elem.get('default')
+                    if default_flow:
+                        self.gateway_fluents[cond_fluent] = 'false'
+                    else:
+                        self.gateway_fluents[cond_fluent] = 'true'
+    
     def _generate_header(self):
         return PROLOG_HEADER
 
@@ -439,10 +551,12 @@ class PrologTranslator:
         # Use functional fluent if:
         # 1. More than 2 branches with distinct labels, OR
         # 2. Exactly 2 branches but with explicit non-boolean labels (e.g., "stay" vs "go back"), OR
-        # 3. All branches (2+) have labels but no default is specified (need to treat as functional)
+        # 3. All branches (2+) have labels but no default is specified (need to treat as functional), OR
+        # 4. Gateway has AT LEAST ONE labeled branch (even boolean) - decision tasks need 3-parameter actions
         is_functional = (len(outgoing_flows) > 2 and labeled_count >= 2) or \
                        (len(outgoing_flows) == 2 and has_non_boolean_labels and labeled_count >= 1) or \
-                       (len(outgoing_flows) >= 2 and labeled_count == len(outgoing_flows) and not default_flow)
+                       (len(outgoing_flows) >= 2 and labeled_count == len(outgoing_flows) and not default_flow) or \
+                       (len(outgoing_flows) >= 2 and labeled_count >= 1)  # Any 2+ branches with at least 1 labeled
         
         return is_functional, branch_values
 
@@ -458,30 +572,48 @@ class PrologTranslator:
                     # Get or generate fluent name for this gateway
                     fluent_name = self._get_or_generate_gateway_fluent_name(elem, proc)
                     
-                    # Analyze if this gateway needs a functional fluent
+                    # Analyze if this gateway has decision tasks (needs 3-parameter actions)
                     is_functional, branch_values = self._analyze_gateway_branches(elem['id'], proc)
                     
-                    if is_functional:
-                        # Functional fluent for multi-branch gateways
-                        fluents.add(f"fun:{fluent_name}(_ID)")  # Mark as functional with prefix
-                        predecessors = self._find_true_predecessors(elem['id'], proc)
-                        for pred_task in predecessors:
-                            if self._is_element_type(pred_task, TASK):
-                                task_end = f"{self._prologify(pred_task['name'])}(end, ID, VALUE)"
-                                # Generate causes_val for each possible branch value
-                                # The task returns the value that determines which branch to take
-                                causes.append(f"causes_val({task_end}, {fluent_name}(ID), VALUE, true).")
+                    # Check if this gateway has NON-BOOLEAN values (needs functional fluent)
+                    # Boolean gateways: values are only "true"/"false" -> use rel_fluent
+                    # Non-boolean gateways: values like "bewilligt"/"nicht_bewilligt" -> use fun_fluent
+                    predecessors = self._find_true_predecessors(elem['id'], proc)
+                    if predecessors and self._is_element_type(predecessors[0], TASK):
+                        # Get the decision values from the task
+                        pred_task = predecessors[0]
+                        _, decision_values = self._get_decision_values(pred_task['id'], proc)
+                        
+                        # Check if values are boolean (true/false only)
+                        is_boolean = set(decision_values) <= {'true', 'false'}
+                        
+                        if is_boolean:
+                            # Relational fluent for boolean gateways
+                            fluents.add(f"{fluent_name}(_ID)")
+                            task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
+                            causes.extend([
+                                f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
+                                f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
+                            ])
+                        else:
+                            # Functional fluent for non-boolean gateways
+                            fluents.add(f"fun:{fluent_name}(_ID)")
+                            self.functional_fluents.add(fluent_name)  # Track for initially clauses
+                            task_end = f"{self._prologify(pred_task['name'])}(end, ID, VALUE)"
+                            causes.append(f"causes_val({task_end}, {fluent_name}(ID), VALUE, true).")
                     else:
-                        # Relational fluent for binary gateways (traditional true/false)
-                        fluents.add(f"{fluent_name}(_ID)")
-                        predecessors = self._find_true_predecessors(elem['id'], proc)
-                        for pred_task in predecessors:
-                            if self._is_element_type(pred_task, TASK):
-                                task_end = f"{self._prologify(pred_task['name'])}(end, ID, RESULT)"
-                                causes.extend([
-                                    f"causes_true({task_end}, {fluent_name}(ID), RESULT = true).",
-                                    f"causes_false({task_end}, {fluent_name}(ID), RESULT = false)."
-                                ])
+                        # Gateway without predecessor task - check branch labels to determine type
+                        # If branch values are non-boolean, use functional fluent
+                        non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
+                        has_non_boolean = any(v not in ['true', 'false'] for v in non_default_values)
+                        
+                        if has_non_boolean and non_default_values:
+                            # Functional fluent for data-based gateways with specific values
+                            fluents.add(f"fun:{fluent_name}(_ID)")
+                            self.functional_fluents.add(fluent_name)
+                        else:
+                            # Relational fluent for boolean/condition gateways
+                            fluents.add(f"{fluent_name}(_ID)")
         
         for do_id, do_info in self.parser.data_objects.items():
             fluent_name = self._prologify(do_info['name'])
@@ -608,15 +740,27 @@ class PrologTranslator:
     def _generate_running_proc_definition(self):
         """Generates the dynamic running/1 procedure."""
         decision_task_starts = []
+        
+        # Find tasks that are predecessors to functional gateways (they have VALUE/RESULT parameters)
         for proc_id, process in self.parser.processes.items():
             for elem_id, elem in process['elements'].items():
-                if self._is_element_type(elem, TASK) and self._is_decision_task(elem_id, process):
-                    elem_name = self._prologify(elem['name'])
-                    decision_task_starts.append(f"{elem_name}(start, _)")
+                if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                    # Check if this is a functional gateway
+                    is_functional, _ = self._analyze_gateway_branches(elem['id'], process)
+                    if is_functional:
+                        # Find predecessor tasks - these are decision tasks with VALUE parameters
+                        predecessors = self._find_true_predecessors(elem['id'], process)
+                        for pred_task in predecessors:
+                            if self._is_element_type(pred_task, TASK):
+                                task_name = self._prologify(pred_task['name'])
+                                decision_task_starts.append(f"{task_name}(start, _)")
+        
+        # Remove duplicates
+        decision_task_starts = sorted(set(decision_task_starts))
         
         code = ABBREVIATIONS_HEADER
         if decision_task_starts:
-            decision_tasks_str = ",\n      ".join(sorted(decision_task_starts))
+            decision_tasks_str = ",\n      ".join(decision_task_starts)
             code += RUNNING_PROC_DECISION_TASKS.format(decision_tasks=decision_tasks_str)
         
         code += RUNNING_PROC_DEFAULT + ACTIVE_INSTANCES_CHECK
@@ -852,6 +996,8 @@ class PrologTranslator:
                         loop_value = branch_values.get(loop_back_flow_id, 'branch_1')
                         # while(condition, body) where condition continues the loop
                         loop_condition = f"{cond_fluent}(ID) = {loop_value}"
+                        # Track this fluent as loop-controlling with its loop-continuing value
+                        self.loop_fluents[cond_fluent] = loop_value
                     else:
                         # Binary fluent: determine if loop_back is the "true" or "default" branch
                         default_flow = div_gw.get('default')
@@ -859,9 +1005,13 @@ class PrologTranslator:
                         if loop_back_flow_id == default_flow:
                             # Loop continues on default (negation of condition)
                             loop_condition = f"neg({cond_fluent}(ID))"
+                            # Track as binary fluent with false value for loop continuation
+                            self.loop_fluents[cond_fluent] = 'false'
                         else:
                             # Loop continues when condition is true
                             loop_condition = f"{cond_fluent}(ID)"
+                            # Track as binary fluent with true value for loop continuation
+                            self.loop_fluents[cond_fluent] = 'true'
                     
                     # Construct: while(condition, loop_body) followed by exit_proc
                     while_construct = f"while({loop_condition}, {loop_body})"
@@ -878,9 +1028,26 @@ class PrologTranslator:
                 cond_fluent = self._get_or_generate_gateway_fluent_name(elem, process_data)
                 is_functional, branch_values = self._analyze_gateway_branches(elem_id, process_data)
                 
-                if is_functional:
-                    # Multi-branch gateway with functional fluent
-                    # Generate nested if statements: if(fluent(ID) = value1, proc1, if(fluent(ID) = value2, proc2, default_proc))
+                # Check if this is a boolean or non-boolean gateway
+                predecessors = self._find_true_predecessors(elem_id, process_data)
+                is_boolean = True
+                if predecessors and self._is_element_type(predecessors[0], TASK):
+                    _, decision_values = self._get_decision_values(predecessors[0]['id'], process_data)
+                    is_boolean = set(decision_values) <= {'true', 'false'}
+                else:
+                    # Gateway without predecessor - check branch values
+                    non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
+                    is_boolean = not any(v not in ['true', 'false'] for v in non_default_values)
+                
+                if is_boolean:
+                    # Relational fluent - use if(fluent(ID), then, else)
+                    default_flow_id = elem.get('default')
+                    then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                    then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
+                    else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
+                    return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
+                else:
+                    # Functional fluent - use if(fluent(ID) = value, ...)
                     default_flow_id = elem.get('default')
                     default_proc = None
                     non_default_branches = []
@@ -891,28 +1058,16 @@ class PrologTranslator:
                         branch_value = branch_values.get(flow_id, 'unknown')
                         
                         if flow_id == default_flow_id:
-                            # Default branch - will be the final else
                             default_proc = branch_proc
                         else:
-                            # Named branch with specific value condition
                             non_default_branches.append((branch_value, branch_proc))
                     
-                    # Build nested if statements from the branches
-                    # Start with the default (or [] if no default)
+                    # Build nested if statements
                     result = default_proc if default_proc else "[]"
-                    
-                    # Wrap each non-default branch in an if, working backwards
                     for branch_value, branch_proc in reversed(non_default_branches):
                         result = f"if({cond_fluent}(ID) = {branch_value}, {branch_proc}, {result})"
                     
                     return result
-                else:
-                    # Binary gateway (traditional true/false)
-                    default_flow_id = elem.get('default')
-                    then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
-                    then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
-                    else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
-                    return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
         elif self._is_element_type(elem, EVENT_BASED_GATEWAY):
             branches = []
             for flow_id in outgoing_flows:
@@ -1084,13 +1239,29 @@ class PrologTranslator:
                 if self._is_element_type(source_elem, EXCLUSIVE_GATEWAY) and source_elem['name']:
                     fluent_name = self._prologify(source_elem['name'])
                     is_functional, branch_values = self._analyze_gateway_branches(source_elem['id'], process_data)
-                    if is_functional:
-                        branch_value = branch_values.get(inc_flow_id, 'unknown')
-                        new_path_conditions.append(f"{fluent_name}(ID) = {branch_value}")
+                    
+                    # Check if this is a boolean or non-boolean gateway
+                    # Get decision task values to determine
+                    predecessors = self._find_true_predecessors(source_elem['id'], process_data)
+                    is_boolean = True
+                    if predecessors and self._is_element_type(predecessors[0], TASK):
+                        _, decision_values = self._get_decision_values(predecessors[0]['id'], process_data)
+                        is_boolean = set(decision_values) <= {'true', 'false'}
                     else:
+                        # Gateway without predecessor - check branch values
+                        non_default_values = [v for v in branch_values.values() if v not in ['default', 'branch_1']]
+                        is_boolean = not any(v not in ['true', 'false'] for v in non_default_values)
+                    
+                    if is_boolean:
+                        # Relational fluent - use fluent(ID) or neg(fluent(ID))
                         fluent = fluent_name + "(ID)"
                         is_default = source_elem.get('default') == inc_flow_id
                         new_path_conditions.append(f"neg({fluent})" if is_default else fluent)
+                    else:
+                        # Functional fluent - use fluent(ID) = value
+                        branch_value = branch_values.get(inc_flow_id, 'unknown')
+                        new_path_conditions.append(f"{fluent_name}(ID) = {branch_value}")
+                    
                     paths.append(new_path_conditions)
                     continue
                 q.append((source_id, new_path_conditions))
@@ -1156,7 +1327,26 @@ class PrologTranslator:
         return None
 
     def _generate_initial_state(self, fluents):
-        return INITIAL_SITUATION
+        code = INITIAL_SITUATION
+        
+        # Add initially clauses for FUNCTIONAL gateway fluents only
+        # Relational fluents (boolean) don't need initialization
+        # Loop fluents take precedence over general gateway fluents
+        all_gateway_inits = {}
+        all_gateway_inits.update(self.gateway_fluents)  # General gateways
+        all_gateway_inits.update(self.loop_fluents)     # Loop fluents override
+        
+        # Filter to only functional fluents (non-boolean)
+        functional_inits = {name: val for name, val in all_gateway_inits.items() 
+                           if name in self.functional_fluents or name in self.loop_fluents}
+        
+        if functional_inits:
+            code += "\n% Initial values for gateway choice fluents\n"
+            for fluent_name, default_value in sorted(functional_inits.items()):
+                code += f"initially({fluent_name}(_ID), {default_value}).\n"
+            code += "\n"
+        
+        return code
 
     def _find_element_by_id(self, elem_id):
         for proc in self.parser.processes.values():
@@ -1355,11 +1545,20 @@ class PrologTranslator:
         return None
     
     def _is_decision_task(self, task_id, process_data):
+        """Check if a task is a decision task (precedes a functional exclusive gateway)."""
         task = process_data['elements'].get(task_id)
-        if not task or not task['outgoing']: return False
+        if not task or not task['outgoing']: 
+            return False
+        
         next_elem_id = process_data['sequence_flows'][task['outgoing'][0]]['target']
         next_elem = process_data['elements'].get(next_elem_id)
-        return next_elem and 'exclusiveGateway' in next_elem['type'] and next_elem['name']
+        
+        if not (next_elem and 'exclusiveGateway' in next_elem['type']):
+            return False
+        
+        # Check if the gateway is functional (has more than binary branches or explicit values)
+        is_functional, _ = self._analyze_gateway_branches(next_elem['id'], process_data)
+        return is_functional
 
     def _get_decision_values(self, task_id, process_data):
         """
@@ -1375,15 +1574,30 @@ class PrologTranslator:
         next_elem_id = process_data['sequence_flows'][task['outgoing'][0]]['target']
         next_elem = process_data['elements'].get(next_elem_id)
         
-        if not (next_elem and 'exclusiveGateway' in next_elem['type'] and next_elem['name']):
+        if not (next_elem and 'exclusiveGateway' in next_elem['type']):
             return False, []
         
         # Use existing gateway analysis
         is_functional, branch_values_dict = self._analyze_gateway_branches(next_elem['id'], process_data)
         
         if is_functional:
-            # Return the Prologified branch values (excluding 'default' if present)
-            values = [v for v in branch_values_dict.values() if v != 'default']
+            # Get all unique values except 'default'
+            labeled_values = [v for v in branch_values_dict.values() if v != 'default']
+            
+            # If there's only one labeled value and a default, infer the opposite value
+            if len(labeled_values) == 1 and 'default' in branch_values_dict.values():
+                labeled_val = labeled_values[0]
+                # If the labeled value is 'true', default is 'false', and vice versa
+                if labeled_val == 'true':
+                    values = ['true', 'false']
+                elif labeled_val == 'false':
+                    values = ['false', 'true']
+                else:
+                    # For non-boolean values, we can't infer - just use the labeled value
+                    values = labeled_values
+            else:
+                values = labeled_values
+            
             return True, values
         else:
             # Boolean decision

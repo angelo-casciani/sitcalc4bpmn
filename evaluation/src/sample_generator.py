@@ -2,14 +2,16 @@
 Sample Generator for BPMN Evaluation
 
 This module generates test samples for different reasoning tasks:
-- Projection: 6 samples (3 true, 3 false) with fluents from control flow, gateways, data objects
-- Legality: 6 samples (mix of legal/illegal action sequences)
-- Conformance: 6 samples (mix of conforming/non-conforming traces)
-- Property Verification: 6 samples (1-2 properties per sample)
+- Projection: 4 samples (2 true, 2 false) testing control flow fluents
+- Legality: 4 samples (2 legal, 2 illegal) testing action sequences
+- Conformance: 4 samples (2 conforming, 2 non-conforming) testing trace compliance
+- Property Verification: 4 samples (2 success, 2 failure) testing temporal properties
 """
 
 import re
 import random
+import itertools
+import os
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 from enum import Enum
@@ -53,7 +55,7 @@ class ReasoningSample:
         return {
             'task_type': self.task_type.value,
             'sample_id': self.sample_id,
-            'actions': ','.join(self.actions) if self.actions else '',
+            'actions': ';'.join(self.actions) if self.actions else '',  # Use semicolon to avoid CSV parsing issues
             'fluent': self.fluent or '',
             'property_expr': self.property_expr or '',
             'expected_result': self.expected_result.value,
@@ -64,16 +66,19 @@ class ReasoningSample:
 class SampleGenerator:
     """Generate test samples for BPMN reasoning evaluation."""
     
-    def __init__(self, model_name: str, bpmn_metrics: BPMNMetrics):
+    def __init__(self, model_name: str, bpmn_metrics: BPMNMetrics, prolog_model_path: str = None):
         """Initialize the sample generator.
         
         Args:
             model_name: Name of the BPMN model
             bpmn_metrics: Extracted BPMN metrics
+            prolog_model_path: Optional path to the Prolog model file to extract gateway fluents
         """
         self.model_name = model_name
         self.metrics = bpmn_metrics
         self.id_param = "1"  # Default ID parameter for actions
+        self.prolog_model_path = prolog_model_path
+        self._gateway_fluents_from_prolog = None
     
     def generate_all_samples(self) -> List[ReasoningSample]:
         """Generate all 24 samples (6 per task type).
@@ -89,12 +94,7 @@ class SampleGenerator:
         return samples
     
     def generate_projection_samples(self) -> List[ReasoningSample]:
-        """Generate 6 projection samples (3 true, 3 false).
-        
-        Samples distributed across:
-        - 2 control flow fluents (done)
-        - 2 gateway condition fluents
-        - 2 data object fluents
+        """Generate 4 projection samples (2 true, 2 false).
         
         Returns:
             List of projection samples
@@ -103,8 +103,6 @@ class SampleGenerator:
         
         # Get task names for control flow fluents
         task_names = self._get_sanitized_task_names()
-        gateway_conditions = self._get_sanitized_gateway_conditions()
-        data_objects = self._get_sanitized_data_objects()
         
         # Sample 1: Control flow - TRUE (task is done after completing it)
         if len(task_names) >= 1:
@@ -121,8 +119,8 @@ class SampleGenerator:
             ))
         
         # Sample 2: Control flow - FALSE (task not done before starting it)
-        if len(task_names) >= 2:
-            task = task_names[1] if len(task_names) > 1 else task_names[0]
+        if len(task_names) >= 1:
+            task = task_names[0]
             actions = []  # Empty history
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROJECTION,
@@ -134,7 +132,7 @@ class SampleGenerator:
                 description=f"Control flow: Task '{task}' should not be done initially"
             ))
         
-        # Sample 3: Another control flow - TRUE (different task is done)
+        # Sample 3: Control flow - TRUE (different task is done)
         if len(task_names) >= 2:
             task = task_names[1]
             actions = [f"{task}(start, {self.id_param})", f"{task}(end, {self.id_param})"]
@@ -148,54 +146,24 @@ class SampleGenerator:
                 description=f"Control flow: Task '{task}' should be done after completion"
             ))
         
-        # Sample 4: Gateway condition - FALSE (condition remains false)
-        if len(gateway_conditions) >= 1:
-            condition = gateway_conditions[0]
+        # Sample 4: Control flow - FALSE (different task not done initially)
+        if len(task_names) >= 2:
+            task = task_names[1]
             actions = []
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROJECTION,
                 sample_id=4,
                 actions=actions,
-                fluent=f"{condition}({self.id_param})",
+                fluent=f"done({task}(end, {self.id_param}))",
                 property_expr=None,
                 expected_result=ExpectedResult.FALSE,
-                description=f"Gateway condition: '{condition}' should be false initially"
-            ))
-        
-        # Sample 5: Data object - TRUE (data object created)
-        if len(data_objects) >= 1:
-            data_obj = data_objects[0]
-            if len(task_names) >= 1:
-                task = task_names[0]
-                actions = [f"{task}(start, {self.id_param})", f"{task}(end, {self.id_param})"]
-                samples.append(ReasoningSample(
-                    task_type=ReasoningTask.PROJECTION,
-                    sample_id=5,
-                    actions=actions,
-                    fluent=f"{data_obj}({self.id_param})",
-                    property_expr=None,
-                    expected_result=ExpectedResult.TRUE,
-                    description=f"Data object: '{data_obj}' exists after task execution"
-                ))
-        
-        # Sample 6: Data object - FALSE (data object not created)
-        if len(data_objects) >= 1:
-            data_obj = data_objects[0]
-            actions = []
-            samples.append(ReasoningSample(
-                task_type=ReasoningTask.PROJECTION,
-                sample_id=6,
-                actions=actions,
-                fluent=f"{data_obj}({self.id_param})",
-                property_expr=None,
-                expected_result=ExpectedResult.FALSE,
-                description=f"Data object: '{data_obj}' should not exist initially"
+                description=f"Control flow: Task '{task}' should not be done initially"
             ))
         
         return samples
     
     def generate_legality_samples(self) -> List[ReasoningSample]:
-        """Generate 6 legality samples (mix of legal/illegal sequences).
+        """Generate 4 legality samples (2 legal, 2 illegal sequences).
         
         Returns:
             List of legality samples
@@ -207,10 +175,13 @@ class SampleGenerator:
         # Get the start event action (exogenous action that triggers process)
         start_event = start_events[0] if start_events else None
         
+        # Get the first task in true execution order (after start event)
+        first_task_raw = self.metrics.first_task_after_start
+        first_task = self._sanitize_single_name(first_task_raw) if first_task_raw else (task_names[0] if task_names else None)
+        
         # Sample 1: LEGAL - Start event + single task execution (start then end)
-        if start_event and len(task_names) >= 1:
-            task = task_names[0]
-            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})", f"{task}(end, {self.id_param})"]
+        if start_event and first_task:
+            actions = [f"{start_event}({self.id_param})", f"{first_task}(start, {self.id_param})", f"{first_task}(end, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=1,
@@ -218,13 +189,12 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Legal: Start event + complete execution of task '{task}'"
+                description=f"Legal: Start event + complete execution of task '{first_task}'"
             ))
         
         # Sample 2: ILLEGAL - End task before start (even with start event)
-        if start_event and len(task_names) >= 1:
-            task = task_names[0]
-            actions = [f"{start_event}({self.id_param})", f"{task}(end, {self.id_param})"]
+        if start_event and first_task:
+            actions = [f"{start_event}({self.id_param})", f"{first_task}(end, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=2,
@@ -232,12 +202,13 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.FAILURE,
-                description=f"Illegal: End task '{task}' before starting it"
+                description=f"Illegal: End task '{first_task}' before starting it"
             ))
         
         # Sample 3: LEGAL - Start event + sequential execution of two tasks
         if start_event and len(task_names) >= 2:
-            task1, task2 = task_names[0], task_names[1]
+            task1 = first_task if first_task else task_names[0]
+            task2 = task_names[1] if task_names[1] != task1 else (task_names[2] if len(task_names) > 2 else task_names[0])
             actions = [
                 f"{start_event}({self.id_param})",
                 f"{task1}(start, {self.id_param})", f"{task1}(end, {self.id_param})",
@@ -254,9 +225,8 @@ class SampleGenerator:
             ))
         
         # Sample 4: ILLEGAL - Start task twice without ending (with start event)
-        if start_event and len(task_names) >= 1:
-            task = task_names[0]
-            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})", f"{task}(start, {self.id_param})"]
+        if start_event and first_task:
+            actions = [f"{start_event}({self.id_param})", f"{first_task}(start, {self.id_param})", f"{first_task}(start, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.LEGALITY,
                 sample_id=4,
@@ -264,38 +234,15 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.FAILURE,
-                description=f"Illegal: Start task '{task}' twice without ending"
-            ))
-        
-        # Sample 5: LEGAL - Empty sequence (initial state)
-        samples.append(ReasoningSample(
-            task_type=ReasoningTask.LEGALITY,
-            sample_id=5,
-            actions=[],
-            fluent=None,
-            property_expr=None,
-            expected_result=ExpectedResult.SUCCESS,
-            description="Legal: Empty action sequence (initial state)"
-        ))
-        
-        # Sample 6: ILLEGAL - Execute middle task without prerequisites (skip first task)
-        if start_event and len(task_names) >= 2:
-            task = task_names[1]  # Typically requires previous task
-            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})"]
-            samples.append(ReasoningSample(
-                task_type=ReasoningTask.LEGALITY,
-                sample_id=6,
-                actions=actions,
-                fluent=None,
-                property_expr=None,
-                expected_result=ExpectedResult.FAILURE,
-                description=f"Illegal: Start '{task}' without completing prerequisites"
+                description=f"Illegal: Start task '{first_task}' twice without ending"
             ))
         
         return samples
     
     def generate_conformance_samples(self) -> List[ReasoningSample]:
-        """Generate 6 conformance samples (mix of conforming/non-conforming).
+        """Generate 4 conformance samples (2 conforming, 2 non-conforming).
+        
+        NOTE: Conformance histories must be in REVERSE order and include acquire(ID, POOL) actions.
         
         Returns:
             List of conformance samples
@@ -311,13 +258,34 @@ class SampleGenerator:
         first_task_raw = self.metrics.first_task_after_start
         first_task = self._sanitize_single_name(first_task_raw) if first_task_raw else (task_names[0] if task_names else None)
         
-        # Sample 1: CONFORMS - Start event + complete execution of all tasks
+        # Default pool name (matches translator output)
+        pool_name = "main_process"
+        
+        # Get sanitized parallel branches
+        parallel_branches = []
+        if self.metrics.parallel_branches:
+            for branch in self.metrics.parallel_branches:
+                sanitized_branch = [self._sanitize_single_name(t) for t in branch if self._sanitize_single_name(t)]
+                if len(sanitized_branch) >= 2:
+                    parallel_branches.append(sanitized_branch)
+        
+        # Sample 1: CONFORMS - Start event + complete execution of first 3 tasks
+        # Use original order (permutation 0)
         if start_event and len(task_names) >= 1:
+            # Get task sequence with default permutation
+            ordered_tasks = self._get_task_sequence_with_parallel_permutation(task_names, parallel_branches, 0)
+            num_tasks = min(3, len(ordered_tasks))
+            
+            # Build actions in FORWARD execution order first
             actions = [f"{start_event}({self.id_param})"]
-            # Include all tasks in sequence for a complete conformant trace
-            for task in task_names:
+            actions.append(f"acquire({self.id_param}, {pool_name})")
+            # Include first 3 tasks in sequence for a conformant trace
+            for task in ordered_tasks[:num_tasks]:
                 actions.append(f"{task}(start, {self.id_param})")
                 actions.append(f"{task}(end, {self.id_param})")
+            # REVERSE the entire list for conformance checking (history is in reverse)
+            actions.reverse()
+            task_list = ' → '.join(ordered_tasks[:num_tasks])
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=1,
@@ -325,12 +293,13 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Complete execution - start event + all tasks in sequence"
+                description=f"Conforms: Start event + first {num_tasks} task(s): {task_list}"
             ))
         
-        # Sample 2: NOT CONFORMS - Skip start event (use first task)
+        # Sample 2: NOT CONFORMS - Skip start event (use first task) - NO ACQUIRE
         if first_task:
-            actions = [f"{first_task}(start, {self.id_param})", f"{first_task}(end, {self.id_param})"]
+            # In reverse order: end, then start
+            actions = [f"{first_task}(end, {self.id_param})", f"{first_task}(start, {self.id_param})"]
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=2,
@@ -341,15 +310,22 @@ class SampleGenerator:
                 description=f"Not conforms: Missing start event before first task '{first_task}'"
             ))
         
-        # Sample 3: CONFORMS - Start event + first half of tasks (partial but valid execution)
-        if start_event and len(task_names) >= 2:
-            # Include first half of tasks (rounded up) for a valid partial execution
-            num_tasks_to_include = (len(task_names) + 1) // 2
+        # Sample 3: CONFORMS - Start event + first 3 tasks with alternate permutation for parallel tasks
+        # Use permutation 1 (alternate order for parallel tasks, if any)
+        if start_event and len(task_names) >= 1:
+            # Get task sequence with alternate permutation if parallel branches exist
+            ordered_tasks = self._get_task_sequence_with_parallel_permutation(task_names, parallel_branches, 1)
+            num_tasks = min(3, len(ordered_tasks))
+            
+            # Build in forward order
             actions = [f"{start_event}({self.id_param})"]
-            for task in task_names[:num_tasks_to_include]:
+            actions.append(f"acquire({self.id_param}, {pool_name})")
+            for task in ordered_tasks[:num_tasks]:
                 actions.append(f"{task}(start, {self.id_param})")
                 actions.append(f"{task}(end, {self.id_param})")
-            task_list = ' → '.join(task_names[:num_tasks_to_include])
+            # Reverse for conformance
+            actions.reverse()
+            task_list = ' → '.join(ordered_tasks[:num_tasks])
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=3,
@@ -357,17 +333,22 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=None,
                 expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Start event + first half of tasks: {task_list}"
+                description=f"Conforms: Start event + first {num_tasks} task(s): {task_list}"
             ))
         
         # Sample 4: NOT CONFORMS - Wrong order (even with start event)
         if start_event and len(task_names) >= 2:
-            task1, task2 = task_names[0], task_names[1]
+            task1 = first_task if first_task else task_names[0]
+            task2 = task_names[1] if task_names[1] != task1 else (task_names[2] if len(task_names) > 2 else task_names[0])
+            # Build in WRONG forward order: task2 before task1
             actions = [
                 f"{start_event}({self.id_param})",
+                f"acquire({self.id_param}, {pool_name})",
                 f"{task2}(start, {self.id_param})", f"{task2}(end, {self.id_param})",
                 f"{task1}(start, {self.id_param})", f"{task1}(end, {self.id_param})"
             ]
+            # Reverse for conformance
+            actions.reverse()
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.CONFORMANCE,
                 sample_id=4,
@@ -378,52 +359,24 @@ class SampleGenerator:
                 description=f"Not conforms: Wrong order '{task2}' before '{task1}'"
             ))
         
-        # Sample 5: CONFORMS - Start event + first 3 tasks (if available) in sequence
-        if start_event and len(task_names) >= 1:
-            # Include first 3 tasks or all tasks if fewer than 3
-            num_tasks = min(3, len(task_names))
-            actions = [f"{start_event}({self.id_param})"]
-            for task in task_names[:num_tasks]:
-                actions.append(f"{task}(start, {self.id_param})")
-                actions.append(f"{task}(end, {self.id_param})")
-            task_list = ' → '.join(task_names[:num_tasks])
-            samples.append(ReasoningSample(
-                task_type=ReasoningTask.CONFORMANCE,
-                sample_id=5,
-                actions=actions,
-                fluent=None,
-                property_expr=None,
-                expected_result=ExpectedResult.CONFORMS,
-                description=f"Conforms: Start event + first {num_tasks} task(s): {task_list}"
-            ))
-        
-        # Sample 6: NOT CONFORMS - Incomplete execution (start without end)
-        if start_event and len(task_names) >= 1:
-            task = task_names[0]
-            actions = [f"{start_event}({self.id_param})", f"{task}(start, {self.id_param})"]
-            samples.append(ReasoningSample(
-                task_type=ReasoningTask.CONFORMANCE,
-                sample_id=6,
-                actions=actions,
-                fluent=None,
-                property_expr=None,
-                expected_result=ExpectedResult.NOT_CONFORMS,
-                description=f"Not conforms: Incomplete execution of '{task}' (no end action)"
-            ))
-        
         return samples
     
     def generate_property_verification_samples(self) -> List[ReasoningSample]:
-        """Generate 6 property verification samples.
+        """Generate 4 property verification samples:
+        - 2 samples testing control flow (done conditions)
+        - 2 samples testing gateway values (functional or relational/boolean)
         
         Returns:
             List of property verification samples
         """
         samples = []
         task_names = self._get_sanitized_task_names()
-        data_objects = self._get_sanitized_data_objects()
         
-        # Sample 1: Property - "Eventually all tasks complete"
+        # Get functional and relational gateway fluents separately
+        fun_fluents = self._get_functional_gateway_fluents()
+        rel_fluents = self._get_relational_gateway_fluents()
+        
+        # Sample 1: Control Flow - "Eventually task completes" (SUCCESS)
         if len(task_names) >= 1:
             task = task_names[0]
             property_expr = f"done({task}(end, id))"
@@ -434,13 +387,13 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=property_expr,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Property: Eventually task '{task}' completes"
+                description=f"Control flow property: Eventually task '{task}' completes"
             ))
         
-        # Sample 2: Property - "Data object is created"
-        if len(data_objects) >= 1 and len(task_names) >= 1:
-            data_obj = data_objects[0]
-            property_expr = f"{data_obj}(id)"
+        # Sample 2: Control Flow - "Two tasks complete" (SUCCESS)
+        if len(task_names) >= 2:
+            task1, task2 = task_names[0], task_names[1]
+            property_expr = f"and(done({task1}(end, id)), done({task2}(end, id)))"
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROPERTY_VERIFICATION,
                 sample_id=2,
@@ -448,13 +401,14 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=property_expr,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Property: Data object '{data_obj}' is created"
+                description=f"Control flow property: Both '{task1}' and '{task2}' complete"
             ))
         
-        # Sample 3: Property - "Task completed before another"
-        if len(task_names) >= 2:
-            task1, task2 = task_names[0], task_names[1]
-            property_expr = f"and(done({task1}(end, id)), done({task2}(end, id)))"
+        # Sample 3: Gateway - Functional fluent can have a specific value (SUCCESS)
+        if len(fun_fluents) >= 1:
+            gateway = fun_fluents[0]
+            # For functional fluents, we use: some(val, fluent(id) = val)
+            property_expr = f"some(val, {gateway}(id) = val)"
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROPERTY_VERIFICATION,
                 sample_id=3,
@@ -462,13 +416,26 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=property_expr,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Property: Both '{task1}' and '{task2}' complete"
+                description=f"Gateway property: Functional fluent '{gateway}' can have a value"
+            ))
+        elif len(rel_fluents) >= 1:
+            # Fallback to relational fluent if no functional fluents
+            gateway = rel_fluents[0]
+            property_expr = f"{gateway}(id)"
+            samples.append(ReasoningSample(
+                task_type=ReasoningTask.PROPERTY_VERIFICATION,
+                sample_id=3,
+                actions=[],
+                fluent=None,
+                property_expr=property_expr,
+                expected_result=ExpectedResult.SUCCESS,
+                description=f"Gateway property: Relational fluent '{gateway}' can be true"
             ))
         
-        # Sample 4: Property - "Mutual exclusion" (should fail in many processes)
-        if len(task_names) >= 2:
-            task1, task2 = task_names[0], task_names[1]
-            property_expr = f"and(done({task1}(end, id)), neg(done({task2}(end, id))))"
+        # Sample 4: Gateway - Relational fluent or negation (SUCCESS)
+        if len(rel_fluents) >= 1:
+            gateway = rel_fluents[0]
+            property_expr = f"{gateway}(id)"
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROPERTY_VERIFICATION,
                 sample_id=4,
@@ -476,35 +443,20 @@ class SampleGenerator:
                 fluent=None,
                 property_expr=property_expr,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Property: '{task1}' completes but not '{task2}'"
+                description=f"Gateway property: Relational fluent '{gateway}' can be true"
             ))
-        
-        # Sample 5: Property - "Process can complete"
-        if len(task_names) >= 1:
-            last_task = task_names[-1]
-            property_expr = f"done({last_task}(end, id))"
+        elif len(fun_fluents) >= 2:
+            # Use a second functional fluent if available
+            gateway = fun_fluents[1]
+            property_expr = f"some(val, {gateway}(id) = val)"
             samples.append(ReasoningSample(
                 task_type=ReasoningTask.PROPERTY_VERIFICATION,
-                sample_id=5,
+                sample_id=4,
                 actions=[],
                 fluent=None,
                 property_expr=property_expr,
                 expected_result=ExpectedResult.SUCCESS,
-                description=f"Property: Process completes (last task '{last_task}')"
-            ))
-        
-        # Sample 6: Property - "Impossible state" (should fail)
-        if len(task_names) >= 1:
-            task = task_names[0]
-            property_expr = f"and(done({task}(end, id)), neg(done({task}(start, id))))"
-            samples.append(ReasoningSample(
-                task_type=ReasoningTask.PROPERTY_VERIFICATION,
-                sample_id=6,
-                actions=[],
-                fluent=None,
-                property_expr=property_expr,
-                expected_result=ExpectedResult.FAILURE,
-                description=f"Property: Impossible - '{task}' ends without starting"
+                description=f"Gateway property: Functional fluent '{gateway}' can have a value"
             ))
         
         return samples
@@ -555,6 +507,62 @@ class SampleGenerator:
         
         return s
     
+    def _get_task_sequence_with_parallel_permutation(self, task_names: List[str], parallel_branches: List[List[str]], permutation_index: int = 0) -> List[str]:
+        """Get a task sequence that respects parallel branch permutations.
+        
+        Args:
+            task_names: Original task sequence
+            parallel_branches: List of parallel task groups
+            permutation_index: Which permutation to use (0 for original order)
+            
+        Returns:
+            Task sequence with parallel branches permuted
+        """
+        if not parallel_branches:
+            return task_names.copy()
+        
+        # Build a set of all parallel tasks
+        parallel_tasks = set()
+        for branch in parallel_branches:
+            parallel_tasks.update(branch)
+        
+        # Split tasks into sequential and parallel groups
+        result = []
+        i = 0
+        while i < len(task_names):
+            task = task_names[i]
+            
+            # Check if this task is part of a parallel group
+            found_parallel_group = None
+            for branch in parallel_branches:
+                if task in branch:
+                    found_parallel_group = branch
+                    break
+            
+            if found_parallel_group:
+                # Collect all tasks from this parallel group that appear in task_names
+                parallel_group_tasks = []
+                for t in task_names[i:]:
+                    if t in found_parallel_group:
+                        parallel_group_tasks.append(t)
+                        if len(parallel_group_tasks) == len(found_parallel_group):
+                            break
+                
+                # Generate permutations and pick the one at permutation_index
+                permutations = list(itertools.permutations(parallel_group_tasks))
+                perm_idx = permutation_index % len(permutations) if permutations else 0
+                result.extend(permutations[perm_idx])
+                
+                # Skip past all tasks in this parallel group
+                skip_count = len(parallel_group_tasks)
+                i += skip_count
+            else:
+                # Sequential task
+                result.append(task)
+                i += 1
+        
+        return result
+    
     def _get_sanitized_task_names(self) -> List[str]:
         """Get sanitized task names suitable for Prolog.
         
@@ -568,19 +576,79 @@ class SampleGenerator:
                 sanitized.append(clean)
         return sanitized
     
+    def _extract_gateway_fluents_from_prolog(self) -> Tuple[List[str], List[str]]:
+        """Extract gateway fluents from the Prolog model file.
+        
+        Returns:
+            Tuple of (functional_fluents, relational_fluents) - gateway fluent names without (ID)
+        """
+        if not self.prolog_model_path or not os.path.exists(self.prolog_model_path):
+            return [], []
+        
+        functional_fluents = []
+        relational_fluents = []
+        try:
+            with open(self.prolog_model_path, 'r') as f:
+                content = f.read()
+                # Look for patterns like: fun_fluent(choice_xxx_or_yyy(_ID))
+                fun_pattern = r'fun_fluent\((choice_[a-z_]+)\(_ID\)\)'
+                functional_fluents = re.findall(fun_pattern, content)
+                
+                # Look for patterns like: rel_fluent(choice_xxx(_ID))
+                rel_pattern = r'rel_fluent\((choice_[a-z_]+)\(_ID\)\)'
+                relational_fluents = re.findall(rel_pattern, content)
+        except Exception as e:
+            print(f"Warning: Could not extract gateway fluents from Prolog file: {e}")
+        
+        return list(set(functional_fluents)), list(set(relational_fluents))
+    
     def _get_sanitized_gateway_conditions(self) -> List[str]:
         """Get sanitized gateway condition names.
+        
+        First tries to get them from BPMN metrics, then falls back to extracting from Prolog model.
         
         Returns:
             List of sanitized condition names
         """
+        # First try from BPMN metrics
         sanitized = []
         for cond in self.metrics.gateway_conditions:
             # Use the same sanitization as for task names
             clean = self._sanitize_single_name(cond)
             if clean and clean not in sanitized:
                 sanitized.append(clean)
+        
+        # If no conditions found and we have a Prolog model path, extract from there
+        if not sanitized and self.prolog_model_path:
+            if self._gateway_fluents_from_prolog is None:
+                fun_fluents, rel_fluents = self._extract_gateway_fluents_from_prolog()
+                self._gateway_fluents_from_prolog = (fun_fluents, rel_fluents)
+            fun_fluents, rel_fluents = self._gateway_fluents_from_prolog
+            sanitized = fun_fluents + rel_fluents
+        
         return sanitized
+    
+    def _get_functional_gateway_fluents(self) -> List[str]:
+        """Get functional gateway fluents from Prolog model.
+        
+        Returns:
+            List of functional gateway fluent names
+        """
+        if self._gateway_fluents_from_prolog is None:
+            fun_fluents, rel_fluents = self._extract_gateway_fluents_from_prolog()
+            self._gateway_fluents_from_prolog = (fun_fluents, rel_fluents)
+        return self._gateway_fluents_from_prolog[0]
+    
+    def _get_relational_gateway_fluents(self) -> List[str]:
+        """Get relational gateway fluents from Prolog model.
+        
+        Returns:
+            List of relational gateway fluent names
+        """
+        if self._gateway_fluents_from_prolog is None:
+            fun_fluents, rel_fluents = self._extract_gateway_fluents_from_prolog()
+            self._gateway_fluents_from_prolog = (fun_fluents, rel_fluents)
+        return self._gateway_fluents_from_prolog[1]
     
     def _get_sanitized_start_events(self) -> List[str]:
         """Get sanitized start event names.
@@ -611,20 +679,35 @@ class SampleGenerator:
 
 if __name__ == '__main__':
     import sys
+    import csv
+    from pathlib import Path
     from bpmn_metrics import extract_bpmn_metrics
     
-    if len(sys.argv) < 2:
-        print("Usage: python sample_generator.py <bpmn_file_path>")
+    if len(sys.argv) < 3:
+        print("Usage: python sample_generator.py <bpmn_file_path> <model_name>")
         sys.exit(1)
     
     bpmn_file = sys.argv[1]
-    model_name = bpmn_file.split('/')[-1].replace('.bpmn', '').replace('.xml', '')
+    model_name = sys.argv[2]
     
     print(f"\nGenerating samples for: {model_name}")
     print("=" * 70)
     
     metrics = extract_bpmn_metrics(bpmn_file)
-    generator = SampleGenerator(model_name, metrics)
+    
+    # Try to find the Prolog model file
+    prolog_model_path = None
+    possible_paths = [
+        Path(__file__).parent.parent.parent / 'pl_models' / model_name / f'{model_name}.pl',
+        Path(__file__).parent.parent.parent / 'pl_models' / 'case_study' / f'{model_name}.pl'
+    ]
+    for path in possible_paths:
+        if path.exists():
+            prolog_model_path = str(path)
+            print(f"Found Prolog model: {prolog_model_path}")
+            break
+    
+    generator = SampleGenerator(model_name, metrics, prolog_model_path)
     samples = generator.generate_all_samples()
     
     print(f"\nGenerated {len(samples)} samples:")
@@ -633,3 +716,15 @@ if __name__ == '__main__':
         print(f"\n{task_type.value}: {len(task_samples)} samples")
         for sample in task_samples[:2]:  # Show first 2 of each type
             print(f"  - Sample {sample.sample_id}: {sample.description}")
+    
+    # Write to CSV
+    output_path = Path(__file__).parent.parent / 'datasets' / f'{model_name}_samples.csv'
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    with open(output_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=samples[0].to_dict().keys())
+        writer.writeheader()
+        for sample in samples:
+            writer.writerow(sample.to_dict())
+    
+    print(f"\n✓ Samples written to: {output_path}")

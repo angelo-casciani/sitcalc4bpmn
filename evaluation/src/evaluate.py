@@ -182,6 +182,15 @@ class BPMNEvaluator:
             
             metrics = MetricsCollector.parse_prolog_output(output, success)
             
+            # For projection: convert success/failure to true/false based on expected value
+            # If query succeeds -> fluent has expected value
+            # If query fails -> fluent has opposite value
+            if metrics:
+                if metrics.result == "success":
+                    metrics.result = expected_str  # Query succeeded, fluent has expected value
+                elif metrics.result == "failure":
+                    metrics.result = 'false' if expected else 'true'  # Query failed, fluent has opposite value
+            
             print(f"    [DEBUG] Parsed metrics:")
             print(f"            Result: {metrics.result if metrics else 'None'}")
             print(f"            Time: {metrics.reasoning_time if metrics else 'N/A'}")
@@ -211,17 +220,29 @@ class BPMNEvaluator:
             print(f"    [DEBUG] Calling legality with:")
             print(f"            Procedure: {proc_name}")
             print(f"            Actions: {sample.actions}")
+            print(f"            Expected: {sample.expected_result.value}")
             
             success, output = reasoner.legality(proc_name, sample.actions)
             
             print(f"    [DEBUG] Legality returned:")
-            print(f"            Success: {success}")
+            print(f"            Success flag: {success}")
             print(f"            Output length: {len(output)} chars")
+            
+            # Show key parts of output for debugging
+            if "RESULT: SUCCESS" in output:
+                print(f"            Output contains: 'RESULT: SUCCESS'")
+            if "RESULT: FAILURE" in output:
+                print(f"            Output contains: 'RESULT: FAILURE'")
+            if "Program has executed to completion" in output:
+                print(f"            Output contains: 'Program has executed to completion'")
+            if "Program fails" in output:
+                print(f"            Output contains: 'Program fails'")
             
             metrics = MetricsCollector.parse_prolog_output(output, success)
             
             print(f"    [DEBUG] Parsed metrics:")
             print(f"            Result: {metrics.result if metrics else 'None'}")
+            print(f"            Success from reason.py: {success}")
             print(f"            Time: {metrics.reasoning_time if metrics else 'N/A'}")
             print(f"            Inferences: {metrics.inferences if metrics else 'N/A'}")
             
@@ -402,15 +423,22 @@ class BPMNEvaluator:
                 metrics = self.run_property_verification_task(reasoner, sample)
             
             if metrics:
+                # Compute correctness: does actual match expected?
+                correct = (sample.expected_result.value == metrics.result)
+                
                 task_result = {
                     'task_type': sample.task_type.value,
                     'sample_id': sample.sample_id,
                     'expected': sample.expected_result.value,
                     'actual': metrics.result,
-                    **metrics.to_dict()
+                    'correct': correct,
+                    'reasoning_time_sec': metrics.reasoning_time,
+                    'cpu_time_sec': metrics.cpu_time,
+                    'inferences': metrics.inferences
                 }
                 task_results.append(task_result)
-                print(f"    Result: {metrics.result}, Time: {metrics.reasoning_time:.3f}s, Inferences: {metrics.inferences}")
+                print(f"    Expected: {sample.expected_result.value}, Actual: {metrics.result}, Correct: {correct}")
+                print(f"    Time: {metrics.reasoning_time:.3f}s, Inferences: {metrics.inferences}")
         
         # Step 5: Compute accuracy metrics
         print("\n[5/5] Computing accuracy metrics...")
@@ -462,13 +490,14 @@ class BPMNEvaluator:
                 writer.writerow(sample.to_dict())
     
     def _parse_action_list(self, action_string: str) -> List[str]:
-        """Parse a comma-separated action list, respecting parentheses.
+        """Parse a semicolon-separated action list.
         
-        This handles cases where actions have arguments with commas, e.g.:
-        "action1(a,b),action2,action3(x,y,z)"
+        Actions are now separated by semicolons to avoid CSV parsing issues
+        with commas inside action parameters, e.g.:
+        "action1(a,b);action2;action3(x,y,z)"
         
         Args:
-            action_string: String containing comma-separated actions
+            action_string: String containing semicolon-separated actions
         
         Returns:
             List of action strings
@@ -476,26 +505,8 @@ class BPMNEvaluator:
         if not action_string or not action_string.strip():
             return []
         
-        actions = []
-        current_action = ""
-        paren_depth = 0
-        
-        for char in action_string:
-            if char == '(':
-                paren_depth += 1
-                current_action += char
-            elif char == ')':
-                paren_depth -= 1
-                current_action += char
-            elif char == ',' and paren_depth == 0:
-                if current_action.strip():
-                    actions.append(current_action.strip())
-                current_action = ""
-            else:
-                current_action += char
-        
-        if current_action.strip():
-            actions.append(current_action.strip())
+        # Simply split on semicolon since actions no longer contain this character
+        actions = [action.strip() for action in action_string.split(';') if action.strip()]
         
         return actions
     

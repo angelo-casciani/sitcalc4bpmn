@@ -100,15 +100,24 @@ class MetricsCollector:
         print(f"                        '✓' markers found: {'✓' in output}")
         print(f"                        '✗' markers found: {'✗' in output}")
         
-        # Check for success markers (projection, legality, property verification)
-        if ("RESULT: SUCCESS" in output or 
-            "✓ Query evaluation: TRUE" in output or
-            "✓ Action sequence is EXECUTABLE" in output or
-            "✓ Property can be satisfied" in output):
+        # Check for IndiGolog execution status (legality checks)
+        if "Program has executed to completion" in output:
+            result = "success"
+            print(f"        [DEBUG METRICS] Result set to: success (IndiGolog completed)")
+        
+        elif "PROGRAM: Program fails" in output:
+            result = "failure"
+            print(f"        [DEBUG METRICS] Result set to: failure (IndiGolog program failure)")
+        
+        # Check for success markers (projection, property verification)
+        elif ("RESULT: SUCCESS" in output or 
+              "✓ Query evaluation: TRUE" in output or
+              "✓ Action sequence is EXECUTABLE" in output or
+              "✓ Property can be satisfied" in output):
             result = "success"
             print(f"        [DEBUG METRICS] Result set to: success")
         
-        # Check for failure markers (projection, legality, property verification)
+        # Check for failure markers (projection, property verification)
         elif ("RESULT: FAILURE" in output or 
               "✗ Query evaluation: FALSE" in output or
               "✗ Action sequence is NOT EXECUTABLE" in output or
@@ -126,11 +135,6 @@ class MetricsCollector:
               "✗ History is NON-CONFORMANT" in output):
             result = "not_conforms"
             print(f"        [DEBUG METRICS] Result set to: not_conforms")
-        
-        # Check for IndiGolog program failure (legality check)
-        elif "PROGRAM: Program fails" in output:
-            result = "failure"
-            print(f"        [DEBUG METRICS] Result set to: failure (IndiGolog program failure)")
         
         # Check for error cases
         elif "RESULT: ERROR" in output or ("ERROR:" in output and "RESULT:" not in output):

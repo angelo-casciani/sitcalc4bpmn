@@ -105,20 +105,23 @@ class MetricsCollector:
             result = "success"
             print(f"        [DEBUG METRICS] Result set to: success (IndiGolog completed)")
         
-        elif "PROGRAM: Program fails" in output:
+        elif "PROGRAM: Program fails" in output or "Program fails:" in output:
             result = "failure"
             print(f"        [DEBUG METRICS] Result set to: failure (IndiGolog program failure)")
         
-        # Check for success markers (projection, property verification)
+        # Check for success markers (projection, property verification, legality)
         elif ("RESULT: SUCCESS" in output or 
+              "RESULT: Action sequence is EXECUTABLE" in output or
               "✓ Query evaluation: TRUE" in output or
               "✓ Action sequence is EXECUTABLE" in output or
               "✓ Property can be satisfied" in output):
             result = "success"
             print(f"        [DEBUG METRICS] Result set to: success")
         
-        # Check for failure markers (projection, property verification)
+        # Check for failure markers (projection, property verification, legality)
         elif ("RESULT: FAILURE" in output or 
+              "RESULT: Action sequence is NOT EXECUTABLE" in output or
+              "program fails" in output.lower() or
               "✗ Query evaluation: FALSE" in output or
               "✗ Action sequence is NOT EXECUTABLE" in output or
               "✗ Property cannot be satisfied" in output):
@@ -317,21 +320,17 @@ class MetricsCollector:
         
         Args:
             output: Raw output text
-            expected_type: Type of expected result ("projection", "legality", etc.)
+            expected_type: Type of expected result ("legality", "conformance")
             
         Returns:
             Boolean indicating success/true/conforms
         """
         output_lower = output.lower()
-        
-        if expected_type == "projection":
-            return "true" in output_lower and "result: success" not in output_lower
-        elif expected_type == "legality":
+    
+        if expected_type == "legality":
             return "result: success" in output_lower or "legal" in output_lower
         elif expected_type == "conformance":
             return "result: conformant" in output_lower or "conforms" in output_lower
-        elif expected_type == "property_verification":
-            return "result: success" in output_lower and "trace found" in output_lower
         
         # Default: check for general success indicators
         return "success" in output_lower or "true" in output_lower

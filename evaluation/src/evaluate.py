@@ -1,16 +1,3 @@
-"""
-Simplified BPMN Evaluation Script for Legality and Conformance
-
-This script evaluates BPMN models using the samples from all_samples.csv:
-1. Loads samples from CSV (legality and conformance only)
-2. Translates BPMN models to Prolog
-3. Runs legality and conformance queries
-4. Collects metrics and outputs results
-
-Usage:
-    python evaluate_simple.py
-"""
-
 import argparse
 import os
 import sys
@@ -29,8 +16,8 @@ from translator_service import TranslatorService
 from reasoning_service import ReasoningService
 
 
-class SimpleBPMNEvaluator:
-    """Simplified evaluator for BPMN legality and conformance."""
+class BPMNEvaluator:
+    """Evaluator for BPMN legality and conformance."""
     
     def __init__(self, dataset_dir: str, output_dir: str):
         """Initialize the evaluator.
@@ -122,6 +109,9 @@ class SimpleBPMNEvaluator:
             # Actions are already in IndiGolog format from CSV, just join with commas
             # NOTE: ReasoningService will reverse the history internally
             history_str = ', '.join(sample['actions'])
+            
+            print(f"    [DEBUG CONFORMANCE] Input (first 3 actions): {sample['actions'][:3]}")
+            print(f"    [DEBUG CONFORMANCE] Expected result: {sample['expected_result']}")
             
             # Use ReasoningService like the UI does
             parameters = {'history_actions': history_str}
@@ -231,7 +221,8 @@ class SimpleBPMNEvaluator:
             
             if metrics:
                 # Check correctness
-                actual_result = metrics.result == 'true' or metrics.result == 'success'
+                # Map result to boolean: success/true/conforms = True, failure/false/not_conforms/unknown = False
+                actual_result = metrics.result in ['true', 'success', 'conforms']
                 is_correct = actual_result == sample['expected_result']
                 
                 if is_correct:
@@ -333,5 +324,5 @@ if __name__ == '__main__':
     output_dir = os.path.join(project_root, 'evaluation')
     
     # Run evaluation
-    evaluator = SimpleBPMNEvaluator(dataset_dir, output_dir)
+    evaluator = BPMNEvaluator(dataset_dir, output_dir)
     evaluator.run_evaluation()

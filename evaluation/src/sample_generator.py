@@ -23,147 +23,217 @@ class SampleGenerator:
         self.metrics = bpmn_metrics
         self.prolog_model_path = prolog_model_path
     
-    def _convert_to_indigolog_actions(self, trace_names, use_full_trace=False):
+    def _convert_to_indigolog_actions(self, trace_with_types, trace_percentage=1.0, include_acquire=False):
         """Convert trace names to IndiGolog format with start/end pairs.
         
         Args:
-            trace_names: List of activity names from trace
-            use_full_trace: If True, use full trace; if False, use half-trace (for legality checks)
+            trace_with_types: List of (activity_name, element_type, xor_value) tuples from trace
+            trace_percentage: Percentage of trace to use (0.0 to 1.0), e.g., 0.25 for 25%, 0.75 for 75%
+            include_acquire: If True, include acquire(1, main_process) action after start event
         
         Returns:
             List of IndiGolog-formatted action strings
         """
         import math
         
-        if not trace_names:
+        if not trace_with_types:
             return ['start_event(1)']
         
-        # For conformance: use full trace
-        # For legality: use half trace
-        if use_full_trace:
-            selected_trace = trace_names
-        else:
-            half_len = math.ceil(len(trace_names) / 2)
-            selected_trace = trace_names[:half_len]
+        # Calculate trace length based on percentage
+        trace_len = max(1, int(len(trace_with_types) * trace_percentage))
+        selected_trace = trace_with_types[:trace_len]
         
         indigolog_actions = []
         
         # The first element should be the start event (exogenous action without start/end)
-        # It's typically named something like 'unemployed', 'job_needed', etc.
         # Format: event_name(1)
+        # For conformance checking, we also need to add the acquire(1, pool_name) action
+        # that the Prolog interpreter automatically adds after the start event
         if selected_trace:
-            indigolog_actions.append(f'{selected_trace[0]}(1)')
+            first_name, first_type, first_xor = selected_trace[0]
+            indigolog_actions.append(f'{first_name}(1)')
+            
+            # Add acquire action if requested (for conformance checking)
+            if include_acquire:
+                indigolog_actions.append('acquire(1, main_process)')
+            
             remaining = selected_trace[1:]
         else:
             remaining = []
         
-        # Convert each activity to start/end pair
-        for activity in remaining:
-            # Check if this is an event or special activity (typically no start/end)
-            # Events include: end events, intermediate events, boundary events, etc.
-            # Heuristics: contains "end", "finish", "complete", "received", "finished", etc.
-            # Or is an adjective/state like "unemployed"
-            is_event = (
-                'end' in activity.lower() or 
-                'finish' in activity.lower() or 
-                'complete' in activity.lower() or
-                'received' in activity.lower() or
-                'sent' in activity.lower() or
-                activity.lower().startswith('still_') or
-                activity.lower() in ['unemployed', 'job_needed', 'job_application_started']
-            )
+        # Convert each activity to start/end pair based on BPMN element type
+        for activity_name, element_type, xor_value in remaining:
+            # Check if this is an event based on BPMN element type
+            # Events (start, end, intermediate, boundary) don't have start/end
+            # Tasks (task, userTask, serviceTask, manualTask, etc.) have start/end
+            is_event = 'Event' in element_type
             
             if is_event:
                 # Events are just: event_name(1)
-                indigolog_actions.append(f'{activity}(1)')
+                indigolog_actions.append(f'{activity_name}(1)')
             else:
-                # Regular activities: activity(start,1) then activity(end,1)
-                indigolog_actions.append(f'{activity}(start,1)')
-                indigolog_actions.append(f'{activity}(end,1)')
+                # Regular activities (tasks): activity(start,1) then activity(end,1)
+                indigolog_actions.append(f'{activity_name}(start,1)')
+                
+                # If this activity precedes an XOR gateway, the end action gets a third argument
+                if xor_value:
+                    indigolog_actions.append(f'{activity_name}(end,1,{xor_value})')
+                else:
+                    indigolog_actions.append(f'{activity_name}(end,1)')
         
         return indigolog_actions
     
-    def generate_samples_from_traces(self, traces: List[Tuple[str, ...]], model_name: str) -> List[Dict]:
-        """Generate legality and conformance samples from traces.
+    def generate_samples_from_traces(self, traces_with_types: List[List[Tuple]], model_name: str) -> List[Dict]:
+        """Generate exactly 8 samples (4 legality + 4 conformance) from traces.
         
-        For each trace, generates:
-        - Legality TRUE sample (original valid trace in IndiGolog format)
-        - Conformance TRUE sample (original valid trace in IndiGolog format)
-        - Legality FALSE sample (if possible: swapped activities after start event)
-        - Conformance FALSE sample (if possible: reversed trace)
+        Generates:
+        - Legality: 2 small (25%), 2 large (50%) - 1 TRUE + 1 FALSE each
+        - Conformance: 2 small (25%), 2 large (50%) - 1 TRUE + 1 FALSE each
+        
+        Distributes samples across different traces when available.
         
         Args:
-            traces: List of trace tuples (each tuple is a sequence of activity names)
+            traces_with_types: List of traces, each trace is a list of (activity_name, element_type, xor_value) tuples
             model_name: Name of the model
             
         Returns:
-            List of generated samples with IndiGolog-formatted actions
+            List of exactly 8 samples with IndiGolog-formatted actions
         """
         samples = []
-        sample_id = 1
         
-        for trace in traces:
-            if not trace:
-                continue
-            
-            # Use sanitized trace names
-            trace_names = [self._sanitize_single_name(name) for name in trace]
-            
-            # Convert to IndiGolog format
-            # Legality: use half-trace (just checking executability)
-            # Conformance: use full trace (checking complete execution path)
-            indigolog_actions_half = self._convert_to_indigolog_actions(trace_names, use_full_trace=False)
-            indigolog_actions_full = self._convert_to_indigolog_actions(trace_names, use_full_trace=True)
-            
-            # TRUE samples - original valid traces
-            # Legality TRUE - use half-trace
-            samples.append({
-                'task_type': "legality",
-                'sample_id': sample_id,
-                'actions': ';'.join(indigolog_actions_half) if indigolog_actions_half else '',
-                'expected_result': True,
-                'model_name': model_name
-            })
-            sample_id += 1
-            
-            # Conformance TRUE - use full trace
-            samples.append({
-                'task_type': "conformance",
-                'sample_id': sample_id,
-                'actions': ';'.join(indigolog_actions_full) if indigolog_actions_full else '',
-                'expected_result': True,
-                'model_name': model_name
-            })
-            sample_id += 1
-            
-            # FALSE samples - modified traces
-            # Need at least 3 activities in original trace to create meaningful swaps
-            if len(trace_names) >= 3:
-                # Swap activities at positions 1 and 2 (keeping start event at position 0)
-                swapped_trace = list(trace_names)
-                swapped_trace[1], swapped_trace[2] = swapped_trace[2], swapped_trace[1]
-                swapped_indigolog = self._convert_to_indigolog_actions(swapped_trace)
-                
-                # Legality FALSE
-                samples.append({
-                    'task_type': "legality",
-                    'sample_id': sample_id,
-                    'actions': ';'.join(swapped_indigolog) if swapped_indigolog else '',
-                    'expected_result': False,
-                    'model_name': model_name
-                })
-                sample_id += 1
-                
-                # Conformance FALSE - reverse the full trace IndiGolog actions
-                reversed_indigolog = indigolog_actions_full[::-1]
-                samples.append({
-                    'task_type': "conformance",
-                    'sample_id': sample_id,
-                    'actions': ';'.join(reversed_indigolog) if reversed_indigolog else '',
-                    'expected_result': False,
-                    'model_name': model_name
-                })
-                sample_id += 1
+        if not traces_with_types:
+            return samples
+        
+        # We need 4 traces ideally (one for each pair), but can work with fewer
+        # Distribute: trace 0 -> small samples, trace 1 -> large samples, etc.
+        num_traces = len(traces_with_types)
+        
+        # Helper function to get trace by index (wrap around if needed)
+        def get_trace(idx):
+            return traces_with_types[idx % num_traces]
+        
+        # Helper function to create swapped trace (swap activities at positions 1 and 2)
+        def create_swapped_trace(trace):
+            if len(trace) < 3:
+                return trace  # Can't swap if too short
+            swapped = list(trace)
+            swapped[1], swapped[2] = swapped[2], swapped[1]
+            return swapped
+        
+        # Sanitize traces
+        sanitized_traces = [
+            [(self._sanitize_single_name(name), elem_type, xor_val) 
+             for name, elem_type, xor_val in trace]
+            for trace in traces_with_types
+        ]
+        
+        # Sample 1: Legality TRUE - Small (25%)
+        trace_0 = get_trace(0)
+        sanitized_0 = sanitized_traces[0 % num_traces]
+        actions = self._convert_to_indigolog_actions(sanitized_0, trace_percentage=0.25, include_acquire=False)
+        samples.append({
+            'task_type': 'legality',
+            'sample_id': 1,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': True,
+            'model_name': model_name,
+            'description': 'legality_small_true'
+        })
+        
+        # Sample 2: Legality FALSE - Small (25%, swapped)
+        trace_1 = get_trace(1)
+        sanitized_1 = sanitized_traces[1 % num_traces]
+        swapped_1 = create_swapped_trace(sanitized_1)
+        actions = self._convert_to_indigolog_actions(swapped_1, trace_percentage=0.25, include_acquire=False)
+        samples.append({
+            'task_type': 'legality',
+            'sample_id': 2,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': False,
+            'model_name': model_name,
+            'description': 'legality_small_false'
+        })
+        
+        # Sample 3: Legality TRUE - Large (50%)
+        trace_2 = get_trace(2)
+        sanitized_2 = sanitized_traces[2 % num_traces]
+        actions = self._convert_to_indigolog_actions(sanitized_2, trace_percentage=0.50, include_acquire=False)
+        samples.append({
+            'task_type': 'legality',
+            'sample_id': 3,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': True,
+            'model_name': model_name,
+            'description': 'legality_large_true'
+        })
+        
+        # Sample 4: Legality FALSE - Large (50%, swapped)
+        trace_3 = get_trace(3)
+        sanitized_3 = sanitized_traces[3 % num_traces]
+        swapped_3 = create_swapped_trace(sanitized_3)
+        actions = self._convert_to_indigolog_actions(swapped_3, trace_percentage=0.50, include_acquire=False)
+        samples.append({
+            'task_type': 'legality',
+            'sample_id': 4,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': False,
+            'model_name': model_name,
+            'description': 'legality_large_false'
+        })
+        
+        # Sample 5: Conformance TRUE - Small (25%, with acquire)
+        trace_4 = get_trace(4)
+        sanitized_4 = sanitized_traces[4 % num_traces]
+        actions = self._convert_to_indigolog_actions(sanitized_4, trace_percentage=0.25, include_acquire=True)
+        samples.append({
+            'task_type': 'conformance',
+            'sample_id': 5,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': True,
+            'model_name': model_name,
+            'description': 'conformance_small_true'
+        })
+        
+        # Sample 6: Conformance FALSE - Small (25%, swapped, with acquire)
+        trace_5 = get_trace(5)
+        sanitized_5 = sanitized_traces[5 % num_traces]
+        swapped_5 = create_swapped_trace(sanitized_5)
+        actions = self._convert_to_indigolog_actions(swapped_5, trace_percentage=0.25, include_acquire=True)
+        samples.append({
+            'task_type': 'conformance',
+            'sample_id': 6,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': False,
+            'model_name': model_name,
+            'description': 'conformance_small_false'
+        })
+        
+        # Sample 7: Conformance TRUE - Large (50%, with acquire)
+        trace_6 = get_trace(6)
+        sanitized_6 = sanitized_traces[6 % num_traces]
+        actions = self._convert_to_indigolog_actions(sanitized_6, trace_percentage=0.50, include_acquire=True)
+        samples.append({
+            'task_type': 'conformance',
+            'sample_id': 7,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': True,
+            'model_name': model_name,
+            'description': 'conformance_large_true'
+        })
+        
+        # Sample 8: Conformance FALSE - Large (50%, swapped, with acquire)
+        trace_7 = get_trace(7)
+        sanitized_7 = sanitized_traces[7 % num_traces]
+        swapped_7 = create_swapped_trace(sanitized_7)
+        actions = self._convert_to_indigolog_actions(swapped_7, trace_percentage=0.50, include_acquire=True)
+        samples.append({
+            'task_type': 'conformance',
+            'sample_id': 8,
+            'actions': ';'.join(actions) if actions else '',
+            'expected_result': False,
+            'model_name': model_name,
+            'description': 'conformance_large_false'
+        })
         
         return samples
     
@@ -230,35 +300,52 @@ if __name__ == '__main__':
                 bpmn_content = f.read()
             
             simulator = SimpleBPMNSimulator(bpmn_content)
-            traces = simulator.generate_traces(max_loops=0, max_traces=10)
-            print(f"Generated {len(traces)} traces")
-            selected_traces = list(traces)[:4]
-            print(f"Using {len(selected_traces)} traces")
+            # Generate multiple traces to distribute samples across
+            traces_with_types = simulator.generate_traces_with_types(max_loops=0, max_traces=10)
+            print(f"  Generated {len(traces_with_types)} traces")
+            
+            if not traces_with_types:
+                print(f"  No traces generated, skipping...")
+                continue
             
             # Model name is now just the filename since files are directly in processed/
             model_name = os.path.basename(bpmn_file)
             metrics = extract_bpmn_metrics(str(bpmn_file))
             
             generator = SampleGenerator(model_name, metrics)
-            start_events = generator._get_sanitized_start_events()
-            start_event = start_events[0] if start_events else None
             
-            samples = generator.generate_samples_from_traces(selected_traces, model_name)
+            # Generate exactly 8 samples per model
+            samples = generator.generate_samples_from_traces(traces_with_types, model_name)
+            print(f"  Generated {len(samples)} samples")
+            
+            # Assign global sample IDs
             for sample in samples:
                 sample['sample_id'] = sample_id_global
                 sample_id_global += 1
             
             all_samples.extend(samples)
         except Exception as e:
-            print(f"Error processing {bpmn_file}: {e}")
+            print(f"  Error processing {bpmn_file}: {e}")
+            import traceback
+            traceback.print_exc()
             continue
     
     output_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'datasets', 'all_samples.csv')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    with open(output_path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=all_samples[0].keys())
-        writer.writeheader()
-        for sample in all_samples:
-            writer.writerow(sample)
     
-    print(f"Generated {len(all_samples)} samples, written to {output_path}")
+    if all_samples:
+        with open(output_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=all_samples[0].keys())
+            writer.writeheader()
+            for sample in all_samples:
+                writer.writerow(sample)
+        
+        print(f"\n{'='*70}")
+        print(f"Generated {len(all_samples)} samples total")
+        print(f"Models processed: {len(all_samples) // 8}")
+        print(f"Samples per model: 8 (4 legality + 4 conformance)")
+        print(f"Written to: {output_path}")
+        print(f"{'='*70}")
+    else:
+        print("No samples generated!")
+

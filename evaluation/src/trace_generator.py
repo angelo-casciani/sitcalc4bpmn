@@ -29,11 +29,14 @@ class SimpleBPMNSimulator:
         self.flow_targets = {} # flow_id -> target_element_id
         self.incoming_flows = {}  # target_element_id -> [flow_id_1, flow_id_2, ...]
         self.gateway_directions = {} # gateway_id -> 'Diverging' or 'Converging'
+        self.flow_names = {}  # flow_id -> flow_name (for XOR branch conditions)
+        self.xor_gateway_flows = {}  # gateway_id -> {flow_id: flow_name}
         
         self.start_event_id = None
         
         self._parse_bpmn()
         self._determine_gateway_directions()
+        self._identify_xor_branches()
 
     def _parse_bpmn(self):
         """Parse all relevant BPMN elements into simple lookups."""
@@ -59,6 +62,7 @@ class SimpleBPMNSimulator:
             flow_id = flow.get('id')
             source = flow.get('sourceRef')
             target = flow.get('targetRef')
+            flow_name = flow.get('name', '')
             
             if not all([flow_id, source, target]):
                 continue # Skip invalid flows
@@ -68,6 +72,7 @@ class SimpleBPMNSimulator:
             self.flows[source].append(flow_id)
             
             self.flow_targets[flow_id] = target
+            self.flow_names[flow_id] = flow_name
             
             if target not in self.incoming_flows:
                 self.incoming_flows[target] = []
@@ -90,6 +95,56 @@ class SimpleBPMNSimulator:
                     self.gateway_directions[elem_id] = 'Complex'
                 else:
                     self.gateway_directions[elem_id] = 'Unspecified'
+    
+    def _identify_xor_branches(self):
+        """
+        Identify exclusive gateways and map their outgoing flows to branch conditions.
+        Also identify which activities feed into diverging XOR gateways.
+        """
+        # Map: activity_elem_id -> list of (flow_id, condition_value) for XOR branches
+        self.activity_to_xor_branches = {}
+        
+        for elem_id, (elem_type, _) in self.elements.items():
+            if elem_type == 'exclusiveGateway' and self.gateway_directions.get(elem_id) == 'Diverging':
+                # This is a diverging XOR gateway
+                outgoing_flows = self.flows.get(elem_id, [])
+                self.xor_gateway_flows[elem_id] = {}
+                
+                # Find what feeds into this XOR gateway
+                incoming_flows = self.incoming_flows.get(elem_id, [])
+                for in_flow_id in incoming_flows:
+                    # Find the source element
+                    for source_elem_id, flow_list in self.flows.items():
+                        if in_flow_id in flow_list:
+                            # This source element feeds into the XOR gateway
+                            # Map the XOR branches to this element
+                            branches = []
+                            for flow_id in outgoing_flows:
+                                flow_name = self.flow_names.get(flow_id, '')
+                                # Sanitize the flow name to extract value (yes/no/etc)
+                                value = self._extract_branch_value(flow_name)
+                                branches.append((flow_id, value))
+                                self.xor_gateway_flows[elem_id][flow_id] = value
+                            
+                            if source_elem_id not in self.activity_to_xor_branches:
+                                self.activity_to_xor_branches[source_elem_id] = []
+                            self.activity_to_xor_branches[source_elem_id].extend(branches)
+    
+    def _extract_branch_value(self, flow_name: str) -> str:
+        """Extract the branch value from a flow name (e.g., 'yes', 'no')."""
+        if not flow_name:
+            return ''
+        # Common patterns: "yes", "no", "> C", "< C", etc.
+        flow_lower = flow_name.lower().strip()
+        if flow_lower in ['yes', 'no']:
+            return flow_lower
+        # Try to extract from longer names
+        if 'yes' in flow_lower:
+            return 'yes'
+        if 'no' in flow_lower:
+            return 'no'
+        # Return original if no pattern matched
+        return flow_name.strip()
 
     def _get_element_name(self, elem_id: str) -> str:
         """Helper to get a display name for an element."""
@@ -106,6 +161,122 @@ class SimpleBPMNSimulator:
                 elif elem_name:
                     return elem_name
         return None
+    
+    def _get_element_info(self, elem_id: str) -> tuple:
+        """Get both name and type for an element.
+        
+        Returns:
+            tuple: (name, type) or (None, None) if element should not be in trace
+        """
+        if elem_id in self.elements:
+            elem_type, elem_name = self.elements[elem_id]
+            
+            # Only add Tasks and named Events to the trace
+            if 'task' in elem_type.lower():
+                return (elem_name or elem_id, elem_type)
+            if 'Event' in elem_type:
+                if elem_type == 'startEvent':
+                    return (elem_name or "Start Event", elem_type)
+                elif elem_name:
+                    return (elem_name, elem_type)
+        return (None, None)
+
+    def generate_traces_with_types(self, max_loops: int = 1, max_traces: int = 100, timeout: int = 5) -> List[List[Tuple]]:
+        """
+        Generates execution traces with element type and XOR branch information.
+        
+        Returns:
+            A list of traces, where each trace is a list of tuples:
+            (activity_name, element_type, xor_value_or_none)
+        """
+        # First generate the simple traces
+        simple_traces = self.generate_traces(max_loops, max_traces, timeout)
+        
+        # Build a mapping from activity names to element IDs and types
+        name_to_elem_info = {}  # name -> (elem_id, elem_type)
+        for elem_id, (elem_type, elem_name) in self.elements.items():
+            if 'task' in elem_type.lower() or 'Event' in elem_type:
+                name_to_use = elem_name or elem_id
+                if elem_type == 'startEvent':
+                    name_to_use = elem_name or "Start Event"
+                if name_to_use:
+                    name_to_elem_info[name_to_use] = (elem_id, elem_type)
+        
+        # Convert simple traces to traces with type and XOR info
+        typed_traces = []
+        for trace in simple_traces:
+            typed_trace = []
+            for i, activity_name in enumerate(trace):
+                elem_id, elem_type = name_to_elem_info.get(activity_name, (None, 'unknown'))
+                
+                # Check if this activity feeds into an XOR gateway
+                xor_value = None
+                if elem_id and elem_id in self.activity_to_xor_branches:
+                    # This activity precedes an XOR gateway
+                    # Determine which branch was taken by looking at the next activity
+                    if i + 1 < len(trace):
+                        next_activity = trace[i + 1]
+                        next_elem_id, _ = name_to_elem_info.get(next_activity, (None, None))
+                        
+                        if next_elem_id:
+                            # Find which XOR branch leads to this next activity
+                            xor_value = self._determine_xor_branch(elem_id, next_elem_id)
+                
+                typed_trace.append((activity_name, elem_type, xor_value))
+            
+            typed_traces.append(typed_trace)
+        
+        return typed_traces
+    
+    def _determine_xor_branch(self, source_elem_id: str, target_elem_id: str) -> str:
+        """
+        Determine which XOR branch value was taken from source to target.
+        
+        Args:
+            source_elem_id: The activity that feeds into XOR gateway
+            target_elem_id: The next activity in the trace
+            
+        Returns:
+            The branch value (e.g., 'yes', 'no') or None
+        """
+        # Find the XOR gateway that source feeds into
+        outgoing_flows = self.flows.get(source_elem_id, [])
+        for flow_id in outgoing_flows:
+            flow_target = self.flow_targets.get(flow_id)
+            if flow_target:
+                elem_type, _ = self.elements.get(flow_target, (None, None))
+                if elem_type == 'exclusiveGateway' and self.gateway_directions.get(flow_target) == 'Diverging':
+                    # This is the XOR gateway
+                    # Find which outgoing flow from the gateway leads to target
+                    xor_outflows = self.flows.get(flow_target, [])
+                    for xor_flow_id in xor_outflows:
+                        # Check if this flow eventually leads to target_elem_id
+                        if self._flow_leads_to(xor_flow_id, target_elem_id):
+                            return self.xor_gateway_flows.get(flow_target, {}).get(xor_flow_id, '')
+        return None
+    
+    def _flow_leads_to(self, flow_id: str, target_elem_id: str, max_depth: int = 10) -> bool:
+        """
+        Check if a flow eventually leads to a target element (within max_depth steps).
+        """
+        if max_depth <= 0:
+            return False
+        
+        immediate_target = self.flow_targets.get(flow_id)
+        if immediate_target == target_elem_id:
+            return True
+        
+        # Check through gateways (skip over converging gateways and other non-activity elements)
+        if immediate_target:
+            elem_type, _ = self.elements.get(immediate_target, (None, None))
+            # If it's a gateway or other non-activity, continue following flows
+            if elem_type and 'Gateway' in elem_type:
+                outgoing = self.flows.get(immediate_target, [])
+                for out_flow in outgoing:
+                    if self._flow_leads_to(out_flow, target_elem_id, max_depth - 1):
+                        return True
+        
+        return False
 
     def generate_traces(self, max_loops: int = 1, max_traces: int = 100, timeout: int = 5) -> Set[Tuple[str, ...]]:
         """

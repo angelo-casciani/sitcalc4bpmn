@@ -64,18 +64,28 @@ class ReasoningService:
                     break
         # For legality checks, use the final status line (EXECUTABLE/NOT EXECUTABLE)
         elif is_legality:
+            # First check for program failure
             for line in lines:
-                stripped = line.strip()
-                if stripped.startswith('✓') or stripped.startswith('✗'):
-                    if 'Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line):
-                        # Extract just the message without the emoji
-                        if 'NOT EXECUTABLE' in line:
-                            result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal)")
-                        else:
-                            result_parts.append("RESULT: Action sequence is EXECUTABLE (legal)")
-                        result_parts.append('-' * 70)
-                        result_parts.append('')
-                        break
+                if 'PROGRAM: Program fails' in line or 'Program fails:' in line:
+                    result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal - program fails)")
+                    result_parts.append('-' * 70)
+                    result_parts.append('')
+                    break
+            
+            # If no failure found, check for success
+            if not result_parts:
+                for line in lines:
+                    stripped = line.strip()
+                    if stripped.startswith('✓') or stripped.startswith('✗'):
+                        if 'Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line):
+                            # Extract just the message without the emoji
+                            if 'NOT EXECUTABLE' in line:
+                                result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal)")
+                            else:
+                                result_parts.append("RESULT: Action sequence is EXECUTABLE (legal)")
+                            result_parts.append('-' * 70)
+                            result_parts.append('')
+                            break
         else:
             # For other tasks, use the standard RESULT: line
             result_line = None

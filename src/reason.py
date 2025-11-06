@@ -523,7 +523,7 @@ class IndiGologReasoner:
             print(f"Prolog procedure: proc({proc_name}, {action_list_str}).")
             print(f"Command: {' '.join(cmd)}\n")
             
-            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=20)
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=50)
             
             if not exec_success:
                 return False, full_output

@@ -9,13 +9,10 @@ This module generates visualizations and reports from evaluation results:
 
 import os
 import csv
-import json
-from typing import List, Dict
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend
 import numpy as np
-from pathlib import Path
 
 
 class ReportGenerator:

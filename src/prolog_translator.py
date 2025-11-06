@@ -37,8 +37,6 @@ class PrologTranslator:
         s = s.strip(' ')
         s = re.sub(r'[\s-]+', '_', s)
         s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
-        if s.startswith('send_'):
-            s = s.replace('send_', '', 1) + '_sent'
         if s and not s[0].islower():
             if s[0].isdigit():
                 s = 'n' + s  # 'n' for numeric

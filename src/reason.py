@@ -531,15 +531,24 @@ class IndiGologReasoner:
             self._print_output_section(full_output)
             
             # Check IndiGolog execution status
+            # NOTE: Both "Program has executed to completion" and "PROGRAM: Program fails" can appear
+            # in the same output. Completion takes priority as it's the final status.
             program_completed = "Program has executed to completion" in full_output
             program_failed = "PROGRAM: Program fails" in full_output
             
+            # Also check for successful action execution count
+            actions_executed = "EM(1): EM completed with" in full_output and "executed actions" in full_output
+            
             # Determine success based on IndiGolog's execution result
+            # Priority: completion > RESULT markers > failure message > return code
             if program_completed:
                 # IndiGolog completed successfully -> sequence is legal
                 success = True
-            elif program_failed:
-                # IndiGolog program failed -> sequence is illegal
+            elif "RESULT: SUCCESS" in full_output and actions_executed:
+                # Actions were executed and RESULT marker shows success
+                success = True
+            elif program_failed and not program_completed:
+                # IndiGolog program failed AND did not complete -> sequence is illegal
                 success = False
             else:
                 # Fallback: use RESULT markers from temp file execution

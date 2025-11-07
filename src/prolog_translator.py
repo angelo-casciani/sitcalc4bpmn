@@ -142,6 +142,17 @@ class PrologTranslator:
         # For more than 2, nest recursively: or(C1, or(C2, or(C3, ...)))
         return f"or({conditions[0]}, {self._build_nested_or(conditions[1:])})"
 
+    def _build_nested_conc(self, processes):
+        """Build nested binary conc/2 predicates from a list of concurrent processes."""
+        if not processes:
+            return "[]"
+        if len(processes) == 1:
+            return processes[0]
+        if len(processes) == 2:
+            return f"conc({processes[0]}, {processes[1]})"
+        # For more than 2, nest recursively: conc(P1, conc(P2, conc(P3, ...)))
+        return f"conc({processes[0]}, {self._build_nested_conc(processes[1:])})"
+
     def _interleave_fluents_and_causes(self, fluents, causes):
         """
         Organize fluents and their causal laws together, matching the structure of job.pl.
@@ -563,8 +574,8 @@ class PrologTranslator:
             elif '_vorhanden' in labeled_value:
                 default_value = labeled_value.replace('_vorhanden', '_nicht_vorhanden')
             else:
-                # Generic: add 'keine_' prefix or similar
-                default_value = f"keine_{labeled_value}"
+                # Generic: add 'not_' prefix or similar
+                default_value = f"not_{labeled_value}"
             branch_values[default_flow] = default_value
         
         # Use functional fluent if:
@@ -808,9 +819,10 @@ class PrologTranslator:
             # Single pool: no need for conc()
             code += f"proc(bpmn_process, server_{participant_procs[0]}).\n\n\n"
         else:
-            # Multiple pools: use conc()
-            servers = ', '.join([f'server_{p}' for p in participant_procs])
-            code += BPMN_PROCESS_CONC.format(servers=servers)
+            # Multiple pools: use nested conc/2 (binary only)
+            servers = [f'server_{p}' for p in participant_procs]
+            conc_expr = self._build_nested_conc(servers)
+            code += f"proc(bpmn_process, {conc_expr}).\n\n\n"
 
         for proc_id, process_data in self.parser.processes.items():
             p_name = self._prologify(self.parser.get_participant_by_process_id(proc_id)['name'])

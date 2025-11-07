@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI" xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="sid-38422fae-e03e-43a3-bef4-bd33b32041b2" targetNamespace="http://bpmn.io/bpmn" exporter="bpmn-js (https://demo.bpmn.io)" exporterVersion="17.3.0">
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI" xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="sid-38422fae-e03e-43a3-bef4-bd33b32041b2" targetNamespace="http://bpmn.io/bpmn" exporter="bpmn-js (https://demo.bpmn.io)" exporterVersion="18.6.1">
   <collaboration id="Collaboration_0f14pne">
     <participant id="Participant_044p56n" name="Customer" processRef="Process_1" />
     <participant id="Participant_0maex7t" name="U2 Bike" processRef="Process_1480u8u" />
     <participant id="Participant_0l6tpzh" name="Supplier" processRef="Process_00jdj4k" />
     <messageFlow id="Flow_0bfn4vc" sourceRef="Participant_044p56n" targetRef="Event_1qt2xxu" />
     <messageFlow id="Flow_14jv9bb" sourceRef="Event_1rnzl4g" targetRef="Participant_044p56n" />
-    <messageFlow id="Flow_0vcltki" sourceRef="Participant_044p56n" targetRef="Event_1a7bu5u" />
     <messageFlow id="Flow_0qemdjs" sourceRef="Participant_044p56n" targetRef="Event_0zdu1av" />
     <messageFlow id="Flow_1rekivx" sourceRef="Event_16h61n3" targetRef="Participant_044p56n" />
     <messageFlow id="Flow_0m66l5c" sourceRef="Participant_044p56n" targetRef="Event_0u1tl3t" />
@@ -14,6 +13,7 @@
     <messageFlow id="Flow_09vajoo" sourceRef="Participant_0l6tpzh" targetRef="Activity_10arfti" />
     <messageFlow id="Flow_1wbtglo" sourceRef="Event_1o1qbaa" targetRef="Participant_044p56n" />
     <messageFlow id="Flow_0qpls5g" sourceRef="Activity_1aieppd" targetRef="Participant_044p56n" />
+    <messageFlow id="Flow_0vcltki" sourceRef="Participant_044p56n" targetRef="Event_1a7bu5u" />
   </collaboration>
   <process id="Process_1" isExecutable="false" />
   <process id="Process_1480u8u">
@@ -26,13 +26,13 @@
         <flowNodeRef>Event_0zdu1av</flowNodeRef>
         <flowNodeRef>Event_1a7bu5u</flowNodeRef>
         <flowNodeRef>Activity_1vjg6fk</flowNodeRef>
+        <flowNodeRef>Event_16h61n3</flowNodeRef>
         <flowNodeRef>Activity_1yur3d9</flowNodeRef>
         <flowNodeRef>Gateway_0wp937f</flowNodeRef>
         <flowNodeRef>Event_1o1qbaa</flowNodeRef>
         <flowNodeRef>Event_02nsuoo</flowNodeRef>
         <flowNodeRef>Gateway_1xc8paw</flowNodeRef>
         <flowNodeRef>Activity_1aieppd</flowNodeRef>
-        <flowNodeRef>Event_16h61n3</flowNodeRef>
         <flowNodeRef>Event_1qlwcj8</flowNodeRef>
         <flowNodeRef>Gateway_12baxpx</flowNodeRef>
         <flowNodeRef>Activity_0a4ypuw</flowNodeRef>
@@ -51,188 +51,37 @@
         <flowNodeRef>Activity_12n6qmi</flowNodeRef>
       </lane>
     </laneSet>
-    <task id="Activity_0wndkzn" name="Create order request">
-      <incoming>Flow_1ac5ee6</incoming>
-      <outgoing>Flow_1t55wag</outgoing>
-      <dataOutputAssociation id="DataOutputAssociation_1afjwgz">
-        <targetRef>DataStoreReference_10i93jt</targetRef>
-      </dataOutputAssociation>
-      <dataOutputAssociation id="DataOutputAssociation_11nbgoe">
-        <targetRef>DataObjectReference_1t7ilw1</targetRef>
-      </dataOutputAssociation>
-    </task>
-    <startEvent id="Event_1qt2xxu" name="Order       received">
-      <outgoing>Flow_1ac5ee6</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_0njdkrs" />
-    </startEvent>
-    <sequenceFlow id="Flow_1ac5ee6" sourceRef="Event_1qt2xxu" targetRef="Activity_0wndkzn" />
-    <sequenceFlow id="Flow_1t55wag" sourceRef="Activity_0wndkzn" targetRef="Activity_1wun5h9" />
-    <dataObjectReference id="DataObjectReference_1t7ilw1" name="Order             request" dataObjectRef="DataObject_08rf5nq" />
-    <dataObject id="DataObject_08rf5nq" />
-    <intermediateThrowEvent id="Event_1rnzl4g" name="Estimated production time notified">
-      <incoming>Flow_0xyvyn6</incoming>
-      <outgoing>Flow_08d8oi9</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_1kucvl6" />
-    </intermediateThrowEvent>
-    <sequenceFlow id="Flow_0xyvyn6" sourceRef="Activity_1wun5h9" targetRef="Event_1rnzl4g" />
-    <eventBasedGateway id="Gateway_1ipkjhq">
-      <incoming>Flow_08d8oi9</incoming>
-      <outgoing>Flow_0tyup4a</outgoing>
-      <outgoing>Flow_1rdgsji</outgoing>
-    </eventBasedGateway>
-    <sequenceFlow id="Flow_08d8oi9" sourceRef="Event_1rnzl4g" targetRef="Gateway_1ipkjhq" />
-    <intermediateCatchEvent id="Event_0zdu1av" name="Cancellation notification received">
-      <incoming>Flow_0tyup4a</incoming>
-      <outgoing>Flow_0745vds</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_1gpaom7" />
-    </intermediateCatchEvent>
-    <sequenceFlow id="Flow_0tyup4a" sourceRef="Gateway_1ipkjhq" targetRef="Event_0zdu1av" />
-    <sequenceFlow id="Flow_1rdgsji" sourceRef="Gateway_1ipkjhq" targetRef="Event_1a7bu5u" />
-    <sequenceFlow id="Flow_0745vds" sourceRef="Event_0zdu1av" targetRef="Activity_1yur3d9" />
-    <dataStoreReference id="DataStoreReference_10i93jt" name="Orders DB" />
-    <sequenceFlow id="Flow_0ec8j41" sourceRef="Event_1a7bu5u" targetRef="Activity_1vjg6fk" />
-    <intermediateCatchEvent id="Event_1a7bu5u" name="Confirmation received">
-      <incoming>Flow_1rdgsji</incoming>
-      <outgoing>Flow_0ec8j41</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_07bg1vn" />
-    </intermediateCatchEvent>
-    <task id="Activity_1vjg6fk" name="Prepare and create purchase order">
-      <incoming>Flow_0ec8j41</incoming>
-      <outgoing>Flow_0qksfjb</outgoing>
-      <dataOutputAssociation id="DataOutputAssociation_0rxrnq9">
-        <targetRef>DataObjectReference_0d8yfe7</targetRef>
-      </dataOutputAssociation>
-    </task>
-    <intermediateThrowEvent id="Event_16h61n3" name="Payment requested">
-      <incoming>Flow_0qksfjb</incoming>
-      <outgoing>Flow_1h5q16p</outgoing>
-      <property id="Property_0m0o8oq" name="__targetRef_placeholder" />
-      <dataInputAssociation id="DataInputAssociation_055k4am">
-        <sourceRef>DataObjectReference_0d8yfe7</sourceRef>
-        <targetRef>Property_0m0o8oq</targetRef>
-      </dataInputAssociation>
-      <messageEventDefinition id="MessageEventDefinition_117x535" />
-    </intermediateThrowEvent>
-    <sequenceFlow id="Flow_0qksfjb" sourceRef="Activity_1vjg6fk" targetRef="Event_16h61n3" />
-    <task id="Activity_1yur3d9" name="Cancel order">
-      <incoming>Flow_0745vds</incoming>
-      <outgoing>Flow_0fviim6</outgoing>
-      <dataOutputAssociation id="DataOutputAssociation_0y2u44g">
-        <targetRef>DataStoreReference_120l961</targetRef>
-      </dataOutputAssociation>
-    </task>
-    <sequenceFlow id="Flow_0fviim6" sourceRef="Activity_1yur3d9" targetRef="Gateway_12baxpx" />
-    <sequenceFlow id="Flow_1h5q16p" sourceRef="Event_16h61n3" targetRef="Gateway_1li20wd" />
     <sequenceFlow id="Flow_045c18j" sourceRef="Gateway_1li20wd" targetRef="Event_1jbdppa" />
-    <sequenceFlow id="Flow_054n9xu" sourceRef="Event_1jbdppa" targetRef="Activity_0a4ypuw" />
-    <sequenceFlow id="Flow_1vjeyf5" sourceRef="Gateway_12baxpx" targetRef="Event_1qlwcj8" />
-    <sequenceFlow id="Flow_0cg984b" sourceRef="Activity_0a4ypuw" targetRef="Gateway_12baxpx" />
     <sequenceFlow id="Flow_0a2596b" sourceRef="Gateway_1li20wd" targetRef="Event_0u1tl3t" />
-    <sequenceFlow id="Flow_1uqnxk9" sourceRef="Event_0u1tl3t" targetRef="Activity_00nnm8h" />
-    <sequenceFlow id="Flow_12grbys" sourceRef="Activity_00nnm8h" targetRef="Gateway_1t4a9sm" />
-    <task id="Activity_00nnm8h" name="Check availability">
-      <incoming>Flow_1uqnxk9</incoming>
-      <outgoing>Flow_12grbys</outgoing>
-    </task>
-    <exclusiveGateway id="Gateway_1t4a9sm" name="The bike is    in the stock?">
-      <incoming>Flow_12grbys</incoming>
-      <outgoing>Flow_13ewb47</outgoing>
-      <outgoing>Flow_00kr8mx</outgoing>
-    </exclusiveGateway>
-    <task id="Activity_1mu610f" name="Retrieve bike from warehouse">
-      <incoming>Flow_13ewb47</incoming>
-      <outgoing>Flow_1luvh9o</outgoing>
-    </task>
-    <sequenceFlow id="Flow_13ewb47" name="yes" sourceRef="Gateway_1t4a9sm" targetRef="Activity_1mu610f" />
-    <task id="Activity_1wun5h9" name="Estimate production time">
-      <incoming>Flow_1t55wag</incoming>
-      <outgoing>Flow_0xyvyn6</outgoing>
-      <property id="Property_1qq8bzo" name="__targetRef_placeholder" />
-      <dataInputAssociation id="DataInputAssociation_0bu2xxx">
-        <sourceRef>DataObjectReference_1t7ilw1</sourceRef>
-        <targetRef>Property_1qq8bzo</targetRef>
-      </dataInputAssociation>
-    </task>
-    <task id="Activity_10arfti" name="Order raw materials">
-      <incoming>Flow_00kr8mx</incoming>
-      <outgoing>Flow_0kk2h10</outgoing>
-    </task>
-    <sequenceFlow id="Flow_00kr8mx" sourceRef="Gateway_1t4a9sm" targetRef="Activity_10arfti" />
-    <task id="Activity_1bwrlw3" name="Manufacture bike">
-      <incoming>Flow_0kk2h10</incoming>
-      <outgoing>Flow_04lzamv</outgoing>
-    </task>
-    <sequenceFlow id="Flow_0kk2h10" sourceRef="Activity_10arfti" targetRef="Activity_1bwrlw3" />
-    <sequenceFlow id="Flow_04lzamv" sourceRef="Activity_1bwrlw3" targetRef="Gateway_1g6uroh" />
-    <sequenceFlow id="Flow_1luvh9o" sourceRef="Activity_1mu610f" targetRef="Gateway_1g6uroh" />
-    <exclusiveGateway id="Gateway_1g6uroh">
-      <incoming>Flow_04lzamv</incoming>
-      <incoming>Flow_1luvh9o</incoming>
-      <outgoing>Flow_0l32j73</outgoing>
-    </exclusiveGateway>
-    <sequenceFlow id="Flow_0l32j73" sourceRef="Gateway_1g6uroh" targetRef="Gateway_0wp937f" />
-    <parallelGateway id="Gateway_0wp937f">
-      <incoming>Flow_0l32j73</incoming>
-      <outgoing>Flow_13d0l3a</outgoing>
-      <outgoing>Flow_0byark7</outgoing>
-    </parallelGateway>
-    <intermediateThrowEvent id="Event_1o1qbaa" name="Emit invoice">
-      <incoming>Flow_13d0l3a</incoming>
-      <outgoing>Flow_0hnlftv</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_1b8fqlz" />
-    </intermediateThrowEvent>
-    <endEvent id="Event_02nsuoo" name="Order      managed">
-      <incoming>Flow_0ly0crr</incoming>
-    </endEvent>
-    <parallelGateway id="Gateway_1xc8paw">
-      <incoming>Flow_1t0fa26</incoming>
-      <incoming>Flow_0hnlftv</incoming>
-      <outgoing>Flow_0ly0crr</outgoing>
-    </parallelGateway>
-    <sequenceFlow id="Flow_13d0l3a" sourceRef="Gateway_0wp937f" targetRef="Event_1o1qbaa" />
-    <sequenceFlow id="Flow_0hnlftv" sourceRef="Event_1o1qbaa" targetRef="Gateway_1xc8paw" />
+    <sequenceFlow id="Flow_054n9xu" sourceRef="Event_1jbdppa" targetRef="Activity_0a4ypuw" />
+    <sequenceFlow id="Flow_0cg984b" sourceRef="Activity_0a4ypuw" targetRef="Gateway_12baxpx" />
+    <sequenceFlow id="Flow_1vjeyf5" sourceRef="Gateway_12baxpx" targetRef="Event_1qlwcj8" />
     <sequenceFlow id="Flow_1t0fa26" sourceRef="Activity_1aieppd" targetRef="Gateway_1xc8paw" />
     <sequenceFlow id="Flow_0ly0crr" sourceRef="Gateway_1xc8paw" targetRef="Event_02nsuoo" />
+    <sequenceFlow id="Flow_0hnlftv" sourceRef="Event_1o1qbaa" targetRef="Gateway_1xc8paw" />
     <sequenceFlow id="Flow_0byark7" sourceRef="Gateway_0wp937f" targetRef="Activity_1aieppd" />
-    <task id="Activity_1aieppd" name="Ship bike">
-      <incoming>Flow_0byark7</incoming>
-      <outgoing>Flow_1t0fa26</outgoing>
-    </task>
-    <dataObjectReference id="DataObjectReference_0d8yfe7" name="Purchase order" dataObjectRef="DataObject_1oxzyc7" />
-    <dataObject id="DataObject_1oxzyc7" />
-    <endEvent id="Event_1qlwcj8" name="Order cancelled">
-      <incoming>Flow_1vjeyf5</incoming>
-    </endEvent>
-    <exclusiveGateway id="Gateway_12baxpx">
-      <incoming>Flow_0fviim6</incoming>
-      <incoming>Flow_0cg984b</incoming>
-      <outgoing>Flow_1vjeyf5</outgoing>
-    </exclusiveGateway>
-    <task id="Activity_0a4ypuw" name="Abort order">
-      <incoming>Flow_054n9xu</incoming>
-      <outgoing>Flow_0cg984b</outgoing>
-      <dataOutputAssociation id="DataOutputAssociation_0ordoas">
-        <targetRef>DataStoreReference_120l961</targetRef>
-      </dataOutputAssociation>
-    </task>
-    <dataStoreReference id="DataStoreReference_120l961" name="Orders DB" />
-    <intermediateCatchEvent id="Event_0u1tl3t" name="Payment received">
-      <incoming>Flow_0a2596b</incoming>
-      <outgoing>Flow_1uqnxk9</outgoing>
-      <messageEventDefinition id="MessageEventDefinition_0qpzdxj" />
-    </intermediateCatchEvent>
-    <intermediateCatchEvent id="Event_1jbdppa" name="7 days">
-      <incoming>Flow_045c18j</incoming>
-      <outgoing>Flow_054n9xu</outgoing>
-      <timerEventDefinition id="TimerEventDefinition_0dtwiqe" />
-    </intermediateCatchEvent>
-    <eventBasedGateway id="Gateway_1li20wd">
-      <incoming>Flow_1h5q16p</incoming>
-      <outgoing>Flow_045c18j</outgoing>
-      <outgoing>Flow_0a2596b</outgoing>
-    </eventBasedGateway>
+    <sequenceFlow id="Flow_13d0l3a" sourceRef="Gateway_0wp937f" targetRef="Event_1o1qbaa" />
+    <sequenceFlow id="Flow_0l32j73" sourceRef="Gateway_1g6uroh" targetRef="Gateway_0wp937f" />
+    <sequenceFlow id="Flow_04lzamv" sourceRef="Activity_1bwrlw3" targetRef="Gateway_1g6uroh" />
+    <sequenceFlow id="Flow_0kk2h10" sourceRef="Activity_10arfti" targetRef="Activity_1bwrlw3" />
+    <sequenceFlow id="Flow_1luvh9o" sourceRef="Activity_1mu610f" targetRef="Gateway_1g6uroh" />
+    <sequenceFlow id="Flow_00kr8mx" sourceRef="Gateway_1t4a9sm" targetRef="Activity_10arfti" />
+    <sequenceFlow id="Flow_13ewb47" name="yes" sourceRef="Gateway_1t4a9sm" targetRef="Activity_1mu610f" />
+    <sequenceFlow id="Flow_12grbys" sourceRef="Activity_00nnm8h" targetRef="Gateway_1t4a9sm" />
+    <sequenceFlow id="Flow_1uqnxk9" sourceRef="Event_0u1tl3t" targetRef="Activity_00nnm8h" />
+    <sequenceFlow id="Flow_0fviim6" sourceRef="Activity_1yur3d9" targetRef="Gateway_12baxpx" />
+    <sequenceFlow id="Flow_1h5q16p" sourceRef="Event_16h61n3" targetRef="Gateway_1li20wd" />
+    <sequenceFlow id="Flow_0qksfjb" sourceRef="Activity_1vjg6fk" targetRef="Event_16h61n3" />
+    <sequenceFlow id="Flow_0ec8j41" sourceRef="Event_1a7bu5u" targetRef="Activity_1vjg6fk" />
+    <sequenceFlow id="Flow_0745vds" sourceRef="Event_0zdu1av" targetRef="Activity_1yur3d9" />
+    <sequenceFlow id="Flow_1rdgsji" sourceRef="Gateway_1ipkjhq" targetRef="Event_1a7bu5u" />
+    <sequenceFlow id="Flow_0tyup4a" sourceRef="Gateway_1ipkjhq" targetRef="Event_0zdu1av" />
+    <sequenceFlow id="Flow_08d8oi9" sourceRef="Event_1rnzl4g" targetRef="Gateway_1ipkjhq" />
+    <sequenceFlow id="Flow_0xyvyn6" sourceRef="Activity_1wun5h9" targetRef="Event_1rnzl4g" />
+    <sequenceFlow id="Flow_1t55wag" sourceRef="Activity_0wndkzn" targetRef="Activity_1wun5h9" />
+    <sequenceFlow id="Flow_1ac5ee6" sourceRef="Event_1qt2xxu" targetRef="Activity_0wndkzn" />
     <subProcess id="Activity_12n6qmi" triggeredByEvent="true">
-      <startEvent id="Event_0x9elr6" name="30 days">
+      <startEvent id="Event_0x9elr6" name="After 30 days">
         <outgoing>Flow_1xq7x3z</outgoing>
         <timerEventDefinition id="TimerEventDefinition_0bsavca" />
       </startEvent>
@@ -247,6 +96,157 @@
         <terminateEventDefinition id="TerminateEventDefinition_10eadls" />
       </endEvent>
     </subProcess>
+    <eventBasedGateway id="Gateway_1li20wd">
+      <incoming>Flow_1h5q16p</incoming>
+      <outgoing>Flow_045c18j</outgoing>
+      <outgoing>Flow_0a2596b</outgoing>
+    </eventBasedGateway>
+    <intermediateCatchEvent id="Event_1jbdppa" name="after 7 days">
+      <incoming>Flow_045c18j</incoming>
+      <outgoing>Flow_054n9xu</outgoing>
+      <timerEventDefinition id="TimerEventDefinition_0dtwiqe" />
+    </intermediateCatchEvent>
+    <intermediateCatchEvent id="Event_0u1tl3t" name="Payment received">
+      <incoming>Flow_0a2596b</incoming>
+      <outgoing>Flow_1uqnxk9</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_0qpzdxj" />
+    </intermediateCatchEvent>
+    <dataStoreReference id="DataStoreReference_120l961" name="Orders DB" />
+    <task id="Activity_0a4ypuw" name="Abort order">
+      <incoming>Flow_054n9xu</incoming>
+      <outgoing>Flow_0cg984b</outgoing>
+      <dataOutputAssociation id="DataOutputAssociation_0ordoas">
+        <targetRef>DataStoreReference_120l961</targetRef>
+      </dataOutputAssociation>
+    </task>
+    <exclusiveGateway id="Gateway_12baxpx">
+      <incoming>Flow_0fviim6</incoming>
+      <incoming>Flow_0cg984b</incoming>
+      <outgoing>Flow_1vjeyf5</outgoing>
+    </exclusiveGateway>
+    <endEvent id="Event_1qlwcj8" name="Order cancelled">
+      <incoming>Flow_1vjeyf5</incoming>
+    </endEvent>
+    <dataObjectReference id="DataObjectReference_0d8yfe7" name="Purchase order" dataObjectRef="DataObject_1oxzyc7" />
+    <dataObject id="DataObject_1oxzyc7" />
+    <task id="Activity_1aieppd" name="Ship bike">
+      <incoming>Flow_0byark7</incoming>
+      <outgoing>Flow_1t0fa26</outgoing>
+    </task>
+    <parallelGateway id="Gateway_1xc8paw">
+      <incoming>Flow_1t0fa26</incoming>
+      <incoming>Flow_0hnlftv</incoming>
+      <outgoing>Flow_0ly0crr</outgoing>
+    </parallelGateway>
+    <endEvent id="Event_02nsuoo" name="Order      managed">
+      <incoming>Flow_0ly0crr</incoming>
+    </endEvent>
+    <intermediateThrowEvent id="Event_1o1qbaa" name="Emit invoice">
+      <incoming>Flow_13d0l3a</incoming>
+      <outgoing>Flow_0hnlftv</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_1b8fqlz" />
+    </intermediateThrowEvent>
+    <parallelGateway id="Gateway_0wp937f">
+      <incoming>Flow_0l32j73</incoming>
+      <outgoing>Flow_13d0l3a</outgoing>
+      <outgoing>Flow_0byark7</outgoing>
+    </parallelGateway>
+    <exclusiveGateway id="Gateway_1g6uroh">
+      <incoming>Flow_04lzamv</incoming>
+      <incoming>Flow_1luvh9o</incoming>
+      <outgoing>Flow_0l32j73</outgoing>
+    </exclusiveGateway>
+    <task id="Activity_1bwrlw3" name="Manufacture bike">
+      <incoming>Flow_0kk2h10</incoming>
+      <outgoing>Flow_04lzamv</outgoing>
+    </task>
+    <task id="Activity_10arfti" name="Order raw materials">
+      <incoming>Flow_00kr8mx</incoming>
+      <outgoing>Flow_0kk2h10</outgoing>
+    </task>
+    <task id="Activity_1wun5h9" name="Estimate production time">
+      <incoming>Flow_1t55wag</incoming>
+      <outgoing>Flow_0xyvyn6</outgoing>
+      <property id="Property_1qq8bzo" name="__targetRef_placeholder" />
+      <dataInputAssociation id="DataInputAssociation_0bu2xxx">
+        <sourceRef>DataObjectReference_1t7ilw1</sourceRef>
+        <targetRef>Property_1qq8bzo</targetRef>
+      </dataInputAssociation>
+    </task>
+    <task id="Activity_1mu610f" name="Retrieve bike from warehouse">
+      <incoming>Flow_13ewb47</incoming>
+      <outgoing>Flow_1luvh9o</outgoing>
+    </task>
+    <exclusiveGateway id="Gateway_1t4a9sm" name="The bike is    in the stock?">
+      <incoming>Flow_12grbys</incoming>
+      <outgoing>Flow_13ewb47</outgoing>
+      <outgoing>Flow_00kr8mx</outgoing>
+    </exclusiveGateway>
+    <task id="Activity_00nnm8h" name="Check availability">
+      <incoming>Flow_1uqnxk9</incoming>
+      <outgoing>Flow_12grbys</outgoing>
+    </task>
+    <task id="Activity_1yur3d9" name="Cancel order">
+      <incoming>Flow_0745vds</incoming>
+      <outgoing>Flow_0fviim6</outgoing>
+      <dataOutputAssociation id="DataOutputAssociation_0y2u44g">
+        <targetRef>DataStoreReference_120l961</targetRef>
+      </dataOutputAssociation>
+    </task>
+    <intermediateThrowEvent id="Event_16h61n3" name="Payment requested">
+      <incoming>Flow_0qksfjb</incoming>
+      <outgoing>Flow_1h5q16p</outgoing>
+      <property id="Property_0m0o8oq" name="__targetRef_placeholder" />
+      <dataInputAssociation id="DataInputAssociation_055k4am">
+        <sourceRef>DataObjectReference_0d8yfe7</sourceRef>
+        <targetRef>Property_0m0o8oq</targetRef>
+      </dataInputAssociation>
+      <messageEventDefinition id="MessageEventDefinition_117x535" />
+    </intermediateThrowEvent>
+    <task id="Activity_1vjg6fk" name="Prepare and create purchase order">
+      <incoming>Flow_0ec8j41</incoming>
+      <outgoing>Flow_0qksfjb</outgoing>
+      <dataOutputAssociation id="DataOutputAssociation_0rxrnq9">
+        <targetRef>DataObjectReference_0d8yfe7</targetRef>
+      </dataOutputAssociation>
+    </task>
+    <intermediateCatchEvent id="Event_1a7bu5u" name="Confirmation received">
+      <incoming>Flow_1rdgsji</incoming>
+      <outgoing>Flow_0ec8j41</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_07bg1vn" />
+    </intermediateCatchEvent>
+    <dataStoreReference id="DataStoreReference_10i93jt" name="Orders DB" />
+    <intermediateCatchEvent id="Event_0zdu1av" name="Cancellation notification received">
+      <incoming>Flow_0tyup4a</incoming>
+      <outgoing>Flow_0745vds</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_1gpaom7" />
+    </intermediateCatchEvent>
+    <eventBasedGateway id="Gateway_1ipkjhq">
+      <incoming>Flow_08d8oi9</incoming>
+      <outgoing>Flow_0tyup4a</outgoing>
+      <outgoing>Flow_1rdgsji</outgoing>
+    </eventBasedGateway>
+    <intermediateThrowEvent id="Event_1rnzl4g" name="Estimated production time notified">
+      <incoming>Flow_0xyvyn6</incoming>
+      <outgoing>Flow_08d8oi9</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_1kucvl6" />
+    </intermediateThrowEvent>
+    <dataObjectReference id="DataObjectReference_1t7ilw1" name="Order             request" dataObjectRef="DataObject_08rf5nq" />
+    <dataObject id="DataObject_08rf5nq" />
+    <startEvent id="Event_1qt2xxu" name="Order       received">
+      <outgoing>Flow_1ac5ee6</outgoing>
+      <messageEventDefinition id="MessageEventDefinition_0njdkrs" />
+    </startEvent>
+    <task id="Activity_0wndkzn" name="Create order request">
+      <incoming>Flow_1ac5ee6</incoming>
+      <outgoing>Flow_1t55wag</outgoing>
+      <dataOutputAssociation id="DataOutputAssociation_1afjwgz">
+        <targetRef>DataStoreReference_10i93jt</targetRef>
+      </dataOutputAssociation>
+      <dataOutputAssociation id="DataOutputAssociation_11nbgoe">
+        <targetRef>DataObjectReference_1t7ilw1</targetRef>
+      </dataOutputAssociation>
+    </task>
   </process>
   <process id="Process_00jdj4k" />
   <bpmndi:BPMNDiagram id="BpmnDiagram_1">
@@ -259,12 +259,12 @@
         <omgdc:Bounds x="160" y="215" width="2080" height="625" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Lane_0c7f6mb_di" bpmnElement="Lane_0c7f6mb" isHorizontal="true">
-        <omgdc:Bounds x="190" y="215" width="2050" height="345" />
-        <bpmndi:BPMNLabel />
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Lane_1345nrk_di" bpmnElement="Lane_1345nrk" isHorizontal="true">
         <omgdc:Bounds x="190" y="560" width="2050" height="280" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Lane_0c7f6mb_di" bpmnElement="Lane_0c7f6mb" isHorizontal="true">
+        <omgdc:Bounds x="190" y="215" width="2050" height="345" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_0wndkzn_di" bpmnElement="Activity_0wndkzn">
@@ -286,7 +286,7 @@
       <bpmndi:BPMNShape id="Event_06g4amy_di" bpmnElement="Event_1rnzl4g">
         <omgdc:Bounds x="572" y="292" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="602" y="329" width="76" height="40" />
+          <omgdc:Bounds x="601" y="329" width="79" height="40" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_1hfv6l7_di" bpmnElement="Gateway_1ipkjhq">
@@ -295,7 +295,7 @@
       <bpmndi:BPMNShape id="Event_0pf41sz_di" bpmnElement="Event_0zdu1av">
         <omgdc:Bounds x="812" y="292" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="800" y="335" width="61" height="40" />
+          <omgdc:Bounds x="799" y="335" width="64" height="40" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="DataStoreReference_10i93jt_di" bpmnElement="DataStoreReference_10i93jt">
@@ -307,7 +307,7 @@
       <bpmndi:BPMNShape id="BPMNShape_02wpoym" bpmnElement="Event_1a7bu5u">
         <omgdc:Bounds x="752" y="412" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="739" y="455" width="63" height="27" />
+          <omgdc:Bounds x="738" y="455" width="66" height="27" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_1vjg6fk_di" bpmnElement="Activity_1vjg6fk">
@@ -378,7 +378,7 @@
       <bpmndi:BPMNShape id="DataObjectReference_0d8yfe7_di" bpmnElement="DataObjectReference_0d8yfe7">
         <omgdc:Bounds x="932" y="475" width="36" height="50" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="912" y="532" width="77" height="14" />
+          <omgdc:Bounds x="913" y="532" width="76" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_1qlwcj8_di" bpmnElement="Event_1qlwcj8">
@@ -403,13 +403,13 @@
       <bpmndi:BPMNShape id="Event_0xfh7og_di" bpmnElement="Event_0u1tl3t">
         <omgdc:Bounds x="1222" y="472" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="1195.5" y="518" width="89" height="14" />
+          <omgdc:Bounds x="1196" y="518" width="89" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_1jbdppa_di" bpmnElement="Event_1jbdppa">
         <omgdc:Bounds x="1172" y="362" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="1174" y="405" width="33" height="14" />
+          <omgdc:Bounds x="1162" y="405" width="58" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Gateway_05riswy_di" bpmnElement="Gateway_1li20wd">
@@ -421,7 +421,7 @@
       <bpmndi:BPMNShape id="Event_15zley0_di" bpmnElement="Event_0x9elr6">
         <omgdc:Bounds x="642" y="722" width="36" height="36" />
         <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="640" y="765" width="40" height="14" />
+          <omgdc:Bounds x="628" y="765" width="65" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_16vbkw5_di" bpmnElement="Activity_16vbkw5">
@@ -582,10 +582,6 @@
         <omgdc:Bounds x="160" y="890" width="2080" height="120" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="Flow_0bfn4vc_di" bpmnElement="Flow_0bfn4vc">
-        <omgdi:waypoint x="280" y="180" />
-        <omgdi:waypoint x="280" y="292" />
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="DataOutputAssociation_1afjwgz_di" bpmnElement="DataOutputAssociation_1afjwgz">
         <omgdi:waypoint x="450" y="284" />
         <omgdi:waypoint x="495" y="260" />
@@ -594,9 +590,30 @@
         <omgdi:waypoint x="413" y="350" />
         <omgdi:waypoint x="431" y="405" />
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataOutputAssociation_0rxrnq9_di" bpmnElement="DataOutputAssociation_0rxrnq9">
+        <omgdi:waypoint x="870" y="470" />
+        <omgdi:waypoint x="932" y="496" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataInputAssociation_055k4am_di" bpmnElement="DataInputAssociation_055k4am">
+        <omgdi:waypoint x="968" y="482" />
+        <omgdi:waypoint x="1007" y="443" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataOutputAssociation_0y2u44g_di" bpmnElement="DataOutputAssociation_0y2u44g">
+        <omgdi:waypoint x="1000" y="293" />
+        <omgdi:waypoint x="1105" y="257" />
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="DataInputAssociation_0bu2xxx_di" bpmnElement="DataInputAssociation_0bu2xxx">
         <omgdi:waypoint x="439" y="455" />
         <omgdi:waypoint x="431" y="630" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataOutputAssociation_0ordoas_di" bpmnElement="DataOutputAssociation_0ordoas">
+        <omgdi:waypoint x="1330" y="340" />
+        <omgdi:waypoint x="1240" y="250" />
+        <omgdi:waypoint x="1155" y="250" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_0bfn4vc_di" bpmnElement="Flow_0bfn4vc">
+        <omgdi:waypoint x="280" y="180" />
+        <omgdi:waypoint x="280" y="292" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_14jv9bb_di" bpmnElement="Flow_14jv9bb">
         <omgdi:waypoint x="590" y="292" />
@@ -610,18 +627,9 @@
         <omgdi:waypoint x="830" y="180" />
         <omgdi:waypoint x="830" y="292" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="DataOutputAssociation_0y2u44g_di" bpmnElement="DataOutputAssociation_0y2u44g">
-        <omgdi:waypoint x="1000" y="293" />
-        <omgdi:waypoint x="1105" y="257" />
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_1rekivx_di" bpmnElement="Flow_1rekivx">
         <omgdi:waypoint x="1020" y="412" />
         <omgdi:waypoint x="1020" y="180" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="DataOutputAssociation_0ordoas_di" bpmnElement="DataOutputAssociation_0ordoas">
-        <omgdi:waypoint x="1330" y="340" />
-        <omgdi:waypoint x="1240" y="250" />
-        <omgdi:waypoint x="1155" y="250" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_0m66l5c_di" bpmnElement="Flow_0m66l5c">
         <omgdi:waypoint x="1240" y="180" />
@@ -642,14 +650,6 @@
       <bpmndi:BPMNEdge id="Flow_0qpls5g_di" bpmnElement="Flow_0qpls5g">
         <omgdi:waypoint x="1990" y="420" />
         <omgdi:waypoint x="1990" y="180" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="DataOutputAssociation_0rxrnq9_di" bpmnElement="DataOutputAssociation_0rxrnq9">
-        <omgdi:waypoint x="870" y="470" />
-        <omgdi:waypoint x="932" y="496" />
-      </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="DataInputAssociation_055k4am_di" bpmnElement="DataInputAssociation_055k4am">
-        <omgdi:waypoint x="968" y="482" />
-        <omgdi:waypoint x="1007" y="443" />
       </bpmndi:BPMNEdge>
     </bpmndi:BPMNPlane>
   </bpmndi:BPMNDiagram>

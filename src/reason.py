@@ -47,18 +47,23 @@ def parse_action_list(action_string):
 class IndiGologReasoner:
     """Handle reasoning tasks over IndiGolog BPMN translations."""
     
-    def __init__(self, model_name):
+    def __init__(self, model_name, model_base_dir=None):
         """Initialize the reasoner with a specific model.
         
         Args:
             model_name: The name of the BPMN model (without extension)
+            model_base_dir: Optional base directory for models (defaults to pl_models/)
         """
         self.model_name = model_name
         self.script_dir = os.path.dirname(os.path.realpath(__file__))
         self.project_root = os.path.abspath(os.path.join(self.script_dir, '..'))
         self.indigolog_dir = os.path.join(self.project_root, 'indigolog')
         self.config_pl = os.path.join(self.indigolog_dir, 'config.pl')
-        self.model_dir = os.path.join(self.project_root, 'pl_models', model_name)
+        # Allow custom model base directory (for evaluation)
+        if model_base_dir is not None:
+            self.model_dir = os.path.join(model_base_dir, model_name)
+        else:
+            self.model_dir = os.path.join(self.project_root, 'pl_models', model_name)
         self.main_pl = os.path.join(self.model_dir, 'main.pl')
         self._validate_setup()
     

@@ -330,7 +330,7 @@ if __name__ == '__main__':
             traceback.print_exc()
             continue
     
-    output_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'datasets', 'all_samples.csv')
+    output_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'datasets', 'samples_leg_conf.csv')
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     if all_samples:

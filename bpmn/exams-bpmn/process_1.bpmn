@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI" xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="sid-38422fae-e03e-43a3-bef4-bd33b32041b2" targetNamespace="http://bpmn.io/bpmn" exporter="bpmn-js (https://demo.bpmn.io)" exporterVersion="16.4.0">
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI" xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" id="sid-38422fae-e03e-43a3-bef4-bd33b32041b2" targetNamespace="http://bpmn.io/bpmn" exporter="bpmn-js (https://demo.bpmn.io)" exporterVersion="18.6.1">
   <collaboration id="Collaboration_0t9e0pg">
     <participant id="Participant_17jk93h" name="Customer" processRef="Process_1" />
     <participant id="Participant_13fwiod" name="Company" processRef="Process_0tnv3qh" />
@@ -50,7 +50,7 @@
     <sequenceFlow id="Flow_0hvj9mz" name="weekend" sourceRef="Gateway_0zbo1ob" targetRef="Event_0uqwbic" />
     <sequenceFlow id="Flow_126rcs9" sourceRef="Event_1uhvyva" targetRef="Gateway_0oif7z1" />
     <sequenceFlow id="Flow_15mtc1s" sourceRef="Event_0uqwbic" targetRef="Event_1uhvyva" />
-    <task id="Activity_1dmx0aa" name="Check products&#39; availability">
+    <task id="Activity_1dmx0aa" name="Check products availability">
       <incoming>Flow_15hc9sn</incoming>
       <outgoing>Flow_0h8s41l</outgoing>
       <property id="Property_1wywbjb" name="__targetRef_placeholder" />
@@ -312,16 +312,6 @@
           <omgdc:Bounds x="1169" y="342" width="42" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="Activity_06w4jbf_di" bpmnElement="Activity_06w4jbf">
-        <omgdc:Bounds x="310" y="340" width="100" height="80" />
-        <bpmndi:BPMNLabel />
-      </bpmndi:BPMNShape>
-      <bpmndi:BPMNShape id="DataStoreReference_0uxsh1s_di" bpmnElement="DataStoreReference_0uxsh1s">
-        <omgdc:Bounds x="335" y="475" width="50" height="50" />
-        <bpmndi:BPMNLabel>
-          <omgdc:Bounds x="335" y="532" width="53" height="14" />
-        </bpmndi:BPMNLabel>
-      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Activity_09q68q9_di" bpmnElement="Activity_1q7url9">
         <omgdc:Bounds x="1230" y="340" width="100" height="80" />
         <bpmndi:BPMNLabel />
@@ -486,6 +476,16 @@
           <omgdc:Bounds x="2455" y="385" width="70" height="14" />
         </bpmndi:BPMNLabel>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_06w4jbf_di" bpmnElement="Activity_06w4jbf">
+        <omgdc:Bounds x="310" y="340" width="100" height="80" />
+        <bpmndi:BPMNLabel />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DataStoreReference_0uxsh1s_di" bpmnElement="DataStoreReference_0uxsh1s">
+        <omgdc:Bounds x="335" y="475" width="50" height="50" />
+        <bpmndi:BPMNLabel>
+          <omgdc:Bounds x="335" y="532" width="53" height="14" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Event_0d9x3gj_di" bpmnElement="Event_1d63x24">
         <omgdc:Bounds x="2302" y="382" width="36" height="36" />
         <bpmndi:BPMNLabel>
@@ -635,24 +635,20 @@
         <omgdi:waypoint x="2420" y="360" />
         <omgdi:waypoint x="2472" y="360" />
       </bpmndi:BPMNEdge>
-      <bpmndi:BPMNEdge id="Association_05s4uaj_di" bpmnElement="Association_05s4uaj">
-        <omgdi:waypoint x="2320" y="418" />
-        <omgdi:waypoint x="2320" y="450" />
-        <omgdi:waypoint x="2250" y="450" />
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_10kw3kh_di" bpmnElement="Flow_10kw3kh">
         <omgdi:waypoint x="1778" y="310" />
         <omgdi:waypoint x="1980" y="310" />
         <omgdi:waypoint x="1980" y="275" />
       </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Association_05s4uaj_di" bpmnElement="Association_05s4uaj">
+        <omgdi:waypoint x="2320" y="418" />
+        <omgdi:waypoint x="2320" y="450" />
+        <omgdi:waypoint x="2250" y="450" />
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="Participant_1yhnc63_di" bpmnElement="Participant_1yhnc63" isHorizontal="true">
         <omgdc:Bounds x="152" y="820" width="2388" height="60" />
         <bpmndi:BPMNLabel />
       </bpmndi:BPMNShape>
-      <bpmndi:BPMNEdge id="DataOutputAssociation_1flridc_di" bpmnElement="DataOutputAssociation_1flridc">
-        <omgdi:waypoint x="360" y="420" />
-        <omgdi:waypoint x="360" y="475" />
-      </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="DataInputAssociation_0a506sa_di" bpmnElement="DataInputAssociation_0a506sa">
         <omgdi:waypoint x="850" y="475" />
         <omgdi:waypoint x="850" y="420" />
@@ -686,6 +682,10 @@
       <bpmndi:BPMNEdge id="DataInputAssociation_0y3wxid_di" bpmnElement="DataInputAssociation_0y3wxid">
         <omgdi:waypoint x="2178" y="330" />
         <omgdi:waypoint x="2238" y="263" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DataOutputAssociation_1flridc_di" bpmnElement="DataOutputAssociation_1flridc">
+        <omgdi:waypoint x="360" y="420" />
+        <omgdi:waypoint x="360" y="475" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Flow_0j855j4_di" bpmnElement="Flow_0j855j4">
         <omgdi:waypoint x="230" y="170" />

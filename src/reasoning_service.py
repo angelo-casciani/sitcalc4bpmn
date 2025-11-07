@@ -185,14 +185,15 @@ class ReasoningService:
         
         return "Task completed"
     
-    def __init__(self, model_name):
+    def __init__(self, model_name, model_base_dir=None):
         self.model_name = model_name
+        self.model_base_dir = model_base_dir
         self.reasoner = None
         self._initialize_reasoner()
     
     def _initialize_reasoner(self):
         try:
-            self.reasoner = IndiGologReasoner(self.model_name)
+            self.reasoner = IndiGologReasoner(self.model_name, self.model_base_dir)
             return True, "Reasoner initialized successfully"
         except FileNotFoundError as e:
             return False, str(e)

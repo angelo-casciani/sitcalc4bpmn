@@ -5,11 +5,14 @@ from prolog_templates import *
 
 
 class TranslatorService:
-    def __init__(self):
+    def __init__(self, output_dir=None):
         self.script_dir = Path(__file__).parent.resolve()
         self.project_root = self.script_dir.parent
         self.bpmn_dir = self.project_root / 'bpmn'
-        self.pl_models_dir = self.project_root / 'pl_models'
+        if output_dir is not None:  # Allow custom output directory for evaluation
+            self.pl_models_dir = Path(output_dir)
+        else:
+            self.pl_models_dir = self.project_root / 'pl_models'
         self.bpmn_dir.mkdir(exist_ok=True)
         self.pl_models_dir.mkdir(exist_ok=True)
     

@@ -2,7 +2,7 @@ task_type,sample_id,actions,property,expected_result,model_name
 projection,1,"process_started(1),check_availability(start,1),check_availability(end,1,not_available),registration_to_the_reimbursement_system(start,1),registration_to_the_reimbursement_system(end,1),login_into_the_reimbursement_system(start,1),login_into_the_reimbursement_system(end,1),create_an_electronic_report(start,1),create_an_electronic_report(end,1)",report(1),True,process_0.bpmn
 verification,2,,"done(report_rejection_notification_sent(id)),neg(done(reimbursement_approved(id)))",True,process_0.bpmn
 projection,3,"process_started(1),registration_to_the_reimbursement_system(start,1),registration_to_the_reimbursement_system(end,1),login_into_the_reimbursement_system(start,1),login_into_the_reimbursement_system(end,1)",report(1),False,process_0.bpmn
-verification,4,,"done(report_rejection_notification_sent(id)),done(reimbursement_approved(id))",False,process_0.bpmn
+verification,4,,"neg(done(approval_notification_sent(id))),done(reimbursement_approved(id))",False,process_0.bpmn
 projection,5,"order_received(1),register_the_order(start,1),register_the_order(end,1,working_day),check_products_availability(start,1),check_products_availability(end,1,no),retrieve_suppliers_list(start,1),retrieve_suppliers_list(end,1)",supplier(1),True,process_1.bpmn
 verification,6,,"bill(id),neg(done(order_aborted(id)))",True,process_1.bpmn
 projection,7,"order_received(1),register_the_order(start,1),register_the_order(end,1,working_day),check_products_availability(start,1),check_products_availability(end,1,no)",supplier(1),False,process_1.bpmn
@@ -36,6 +36,6 @@ verification,34,,"done(candidate_not_eligible(id)),done(job_contract_sent(id))",
 projection,35,"job_position_opened(1),create_job_advertisement(start,1),create_job_advertisement(end,1),thirty_days(start,1),thirty_days(end,1),search_for_candidates(start,1),search_for_candidates(end,1,true),retrieve_candidate_cv_and_motivation_letter(start,1),retrieve_candidate_cv_and_motivation_letter(end,1)",cv_and_motivation_letter(2),False,process_8.bpmn
 verification,36,,"done(three_days(start,id)),done(job_contract_sent(id))",False,process_8.bpmn
 projection,37,"order_received(1),create_order_request(start,1),create_order_request(end,1)",order_request(1),True,process_9.bpmn
-verification,38,,"done(after_7_days(end,id)),neg(done(order_managed(id)))",True,process_9.bpmn
+verification,38,,"done(after_30_days(id)),neg(done(order_managed(id)))",True,process_9.bpmn
 projection,39,"order_received(2),create_order_request(start,2),create_order_request(end,2)",order_request(1),False,process_9.bpmn
 verification,40,,"done(order_cancelled(id)),done(check_availability(start,id))",False,process_9.bpmn

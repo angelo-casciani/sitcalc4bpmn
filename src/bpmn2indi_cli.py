@@ -16,7 +16,7 @@ def main():
     )
     args = arg_parser.parse_args()
 
-    # --- 1. Define File Paths based on the new structure ---
+    # 1. Define File Paths based on the new structure
     try:
         script_dir = os.path.dirname(os.path.realpath(__file__))
         bpmn_name = args.bpmn_name
@@ -47,7 +47,7 @@ def main():
         print(f"Error setting up file paths: {e}")
         sys.exit(1)
 
-    # --- 2. Translate the BPMN file ---
+    # 2. Translate the BPMN file
     print(f"Input BPMN file: {bpmn_file_path}")
     try:
         parser = BPMNParser(bpmn_file_path)
@@ -70,7 +70,7 @@ def main():
         print(f"Error writing to output process file '{translated_pl_path}': {e}")
         sys.exit(1)
 
-    # --- 3. Generate the main.pl file ---
+    # 3. Generate the main.pl file
     print(f"Generating main Prolog file: {main_pl_path}")
     try:
         main_pl_content = MAIN_PL_TEMPLATE.format(prolog_basename=bpmn_name)

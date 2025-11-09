@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import os
 import sys
 import csv
@@ -15,19 +16,14 @@ from reasoning_service import ReasoningService
 
 
 class BPMNEvaluator:
-    """Evaluator for BPMN legality and conformance."""
     def __init__(self, dataset_dir: str, output_dir: str):
         self.dataset_dir = dataset_dir
         self.output_dir = output_dir
         self.results = []
         os.makedirs(os.path.join(output_dir, 'results'), exist_ok=True)
-        
-        # Set up evaluation_temp directory for generated models
         self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.pl_models_dir = os.path.join(self.project_root, 'pl_models', 'evaluation_temp')
         os.makedirs(self.pl_models_dir, exist_ok=True)
-        
-        # Initialize translator with evaluation_temp directory
         self.translator = TranslatorService(output_dir=self.pl_models_dir)
     
     def translate_bpmn_model(self, bpmn_path: str, model_name: str) -> str:
@@ -52,7 +48,6 @@ class BPMNEvaluator:
             from reason import parse_action_list
             actions_str = ', '.join(sample['actions'])
             actions = parse_action_list(actions_str)
-            # Call reasoner method directly to get raw output
             success, raw_output = reasoner.reasoner.legality('legality_check', actions)
             metrics = MetricsCollector.parse_prolog_output(raw_output, success)
             return metrics
@@ -82,7 +77,9 @@ class BPMNEvaluator:
             actions_str = ', '.join(sample['actions'])
             actions = parse_action_list(actions_str)
             fluent_name = sample['property']
-            expected_value = 'true' if sample['expected_result'] else 'false'
+            # Always query for 'true' to check if the fluent holds
+            # The result will be compared with expected_result later
+            expected_value = 'true'
             
             # Call reasoner method directly to get raw output
             success, raw_output = reasoner.reasoner.projection(fluent_name, actions, expected_value)
@@ -247,7 +244,7 @@ class BPMNEvaluator:
                     'task_type': task_type,
                     'sample_id': sample['sample_id'],
                     'expected': sample['expected_result'],
-                    'actual': metrics.result,
+                    'returned': actual_result,
                     'correct': is_correct,
                     'reasoning_time': metrics.reasoning_time,
                     'inferences': metrics.inferences
@@ -369,7 +366,7 @@ class BPMNEvaluator:
                     'task_type': task_type,
                     'sample_id': sample['sample_id'],
                     'expected': sample['expected_result'],
-                    'actual': metrics.result,
+                    'returned': actual_result,
                     'correct': is_correct,
                     'reasoning_time': metrics.reasoning_time,
                     'inferences': metrics.inferences
@@ -381,12 +378,8 @@ class BPMNEvaluator:
         print(f"\n  Model Accuracy: {correct}/{total} ({accuracy:.1f}%)")
     
     def save_results(self, suffix=''):
-        """Save evaluation results to CSV file.
-        
-        Args:
-            suffix: Optional suffix for the output filename (e.g., '_proj_verif')
-        """
-        filename = f'evaluation_results{suffix}.csv'
+        datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        filename = f'evaluation_results{suffix}_{datetime_str}.csv'
         output_file = os.path.join(self.output_dir, 'results', filename)        
         with open(output_file, 'w', newline='') as f:
             if self.results:

@@ -12,7 +12,6 @@ class BPMNParser:
         self.participants = {}
         self.message_flows = {}
         self.data_objects = {}
-        # Counters for default names
         self.start_event_counter = 0
         self.end_event_counter = 0
         self._parse()
@@ -44,8 +43,6 @@ class BPMNParser:
                 continue
 
             data_inputs, data_outputs = self._get_element_data_associations(elem_xml)
-            
-            # Get element name, provide defaults for unnamed start/end events
             elem_name = elem_xml.get('name', '')
             if not elem_name or elem_name.strip() == '':
                 if tag == 'startEvent':
@@ -108,7 +105,6 @@ class BPMNParser:
             for process_id in self.processes.keys():
                 participant_id = f"participant_{process_id}"
                 # For single-pool processes, use a more meaningful default name
-                # Check if there's a process name attribute we could use
                 process_xml = self.root.find(f".//bpmn:process[@id='{process_id}']", self.ns)
                 process_name = process_xml.get('name') if process_xml is not None and process_xml.get('name') else 'main_process'
                 self.participants[participant_id] = {

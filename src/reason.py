@@ -956,7 +956,7 @@ class IndiGologReasoner:
             print(f"Property: {property_expr}")
             print(f"Command: {' '.join(cmd)}\n")
             
-            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=20)
+            exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=30)
             
             try:
                 os.unlink(temp_model_file_path)

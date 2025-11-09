@@ -379,7 +379,7 @@ class PrologTranslator:
         
         Loop pattern:
         - Converging gateway with multiple incoming flows
-        - Immediately followed by a diverging gateway
+        - Followed by tasks/events and then a diverging gateway (can have elements in between)
         - One branch from diverging gateway loops back to converging gateway
         - Other branch(es) exit the loop
         """
@@ -394,12 +394,14 @@ class PrologTranslator:
         if len(incoming_flows) <= 1 or len(outgoing_flows) != 1:
             return False, None, None, None
         
-        # Check if immediately followed by a diverging gateway
+        # Find the next diverging gateway (can have tasks/events in between)
         next_elem_id = process_data['sequence_flows'][outgoing_flows[0]]['target']
-        next_elem = process_data['elements'].get(next_elem_id)
+        diverging_gw_id = self._find_next_diverging_gateway(next_elem_id, process_data, max_depth=20)
         
-        if not next_elem or not self._is_element_type(next_elem, EXCLUSIVE_GATEWAY):
+        if not diverging_gw_id:
             return False, None, None, None
+        
+        next_elem = process_data['elements'].get(diverging_gw_id)
         
         diverging_outgoing = next_elem.get('outgoing', [])
         if len(diverging_outgoing) < 2:
@@ -429,9 +431,45 @@ class PrologTranslator:
         if exit_flows and loop_back_flows:
             # This is a loop structure
             # Use the first loop-back flow (they should all loop back anyway in pattern 2)
-            return True, next_elem_id, loop_back_flows[0], exit_flows[0]
+            return True, diverging_gw_id, loop_back_flows[0], exit_flows[0]
         
         return False, None, None, None
+    
+    def _find_next_diverging_gateway(self, start_elem_id, process_data, max_depth=20):
+        """
+        Find the next diverging exclusive gateway following a path from start_elem_id.
+        Skips over tasks and events to find a gateway with multiple outgoing flows.
+        Returns the gateway ID or None if not found.
+        """
+        current_id = start_elem_id
+        depth = 0
+        
+        while current_id and depth < max_depth:
+            elem = process_data['elements'].get(current_id)
+            if not elem:
+                return None
+            
+            # Check if this is a diverging exclusive gateway
+            if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
+                outgoing = elem.get('outgoing', [])
+                if len(outgoing) >= 2:
+                    return current_id
+            
+            # Move to next element (follow single outgoing flow)
+            outgoing = elem.get('outgoing', [])
+            if len(outgoing) != 1:
+                # Either no outgoing or multiple outgoing - stop here
+                return None
+            
+            flow_id = outgoing[0]
+            flow_info = process_data['sequence_flows'].get(flow_id)
+            if not flow_info:
+                return None
+            
+            current_id = flow_info['target']
+            depth += 1
+        
+        return None
     
     def _find_loop_decision_gateway(self, start_elem_id, loop_target_id, process_data, max_depth=50):
         """
@@ -581,12 +619,14 @@ class PrologTranslator:
         # Use functional fluent if:
         # 1. More than 2 branches with distinct labels, OR
         # 2. Exactly 2 branches but with explicit non-boolean labels (e.g., "stay" vs "go back"), OR
-        # 3. All branches (2+) have labels but no default is specified (need to treat as functional), OR
-        # 4. Gateway has AT LEAST ONE labeled branch (even boolean) - decision tasks need 3-parameter actions
+        # 3. All branches (2+) have labels but no default is specified AND labels are non-boolean (need to treat as functional)
+        # Note: If all labels are boolean (true/false), treat as relational fluent, not functional
+        all_labels_boolean = all(v in ['true', 'false', 'default'] for v in branch_values.values())
+        
         is_functional = (len(outgoing_flows) > 2 and labeled_count >= 2) or \
                        (len(outgoing_flows) == 2 and has_non_boolean_labels and labeled_count >= 1) or \
-                       (len(outgoing_flows) >= 2 and labeled_count == len(outgoing_flows) and not default_flow) or \
-                       (len(outgoing_flows) >= 2 and labeled_count >= 1)  # Any 2+ branches with at least 1 labeled
+                       (len(outgoing_flows) >= 2 and labeled_count == len(outgoing_flows) and not default_flow and not all_labels_boolean) or \
+                       (len(outgoing_flows) >= 2 and labeled_count >= 1 and not all_labels_boolean)  # Any 2+ branches with at least 1 non-boolean labeled
         
         return is_functional, branch_values
 
@@ -780,19 +820,14 @@ class PrologTranslator:
         """Generates the dynamic running/1 procedure."""
         decision_task_starts = []
         
-        # Find tasks that are predecessors to functional gateways (they have VALUE/RESULT parameters)
+        # Find tasks that are decision tasks (they have RESULT parameters)
         for proc_id, process in self.parser.processes.items():
             for elem_id, elem in process['elements'].items():
-                if self._is_element_type(elem, EXCLUSIVE_GATEWAY):
-                    # Check if this is a functional gateway
-                    is_functional, _ = self._analyze_gateway_branches(elem['id'], process)
-                    if is_functional:
-                        # Find predecessor tasks - these are decision tasks with VALUE parameters
-                        predecessors = self._find_true_predecessors(elem['id'], process)
-                        for pred_task in predecessors:
-                            if self._is_element_type(pred_task, TASK):
-                                task_name = self._prologify(pred_task['name'])
-                                decision_task_starts.append(f"{task_name}(start, _)")
+                if self._is_element_type(elem, TASK):
+                    # Check if this task is a decision task
+                    if self._is_decision_task(elem['id'], process):
+                        task_name = self._prologify(elem['name'])
+                        decision_task_starts.append(f"{task_name}(start, _)")
         
         # Remove duplicates
         decision_task_starts = sorted(set(decision_task_starts))
@@ -1104,7 +1139,25 @@ class PrologTranslator:
                 if is_boolean:
                     # Relational fluent - use if(fluent(ID), then, else)
                     default_flow_id = elem.get('default')
-                    then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                    
+                    # Determine which flow is "true" and which is "false" based on labels
+                    true_flow_id = None
+                    false_flow_id = None
+                    for flow_id in outgoing_flows:
+                        flow_label = process_data['sequence_flows'][flow_id].get('name', '').lower().strip()
+                        if flow_label == 'true':
+                            true_flow_id = flow_id
+                        elif flow_label == 'false':
+                            false_flow_id = flow_id
+                    
+                    # If we have explicit true/false labels, use them
+                    if true_flow_id and false_flow_id:
+                        then_flow_id = true_flow_id
+                        else_flow_id = false_flow_id
+                    else:
+                        # Fall back to default-based logic
+                        then_flow_id = next((f for f in outgoing_flows if f != default_flow_id), None)
+                        else_flow_id = default_flow_id
                     
                     if convergence_id:
                         # Build branches only up to convergence, then continue with shared flow
@@ -1113,9 +1166,9 @@ class PrologTranslator:
                             convergence_id, process_data, visited.copy()
                         ) if then_flow_id else "[]"
                         else_proc = self._build_proc_until_target(
-                            process_data['sequence_flows'][default_flow_id]['target'], 
+                            process_data['sequence_flows'][else_flow_id]['target'], 
                             convergence_id, process_data, visited.copy()
-                        ) if default_flow_id else "[]"
+                        ) if else_flow_id else "[]"
                         
                         # Check if both branches are empty (direct to convergence)
                         if then_proc == "[]" and else_proc == "[]":
@@ -1153,7 +1206,7 @@ class PrologTranslator:
                     else:
                         # No convergence found, use original logic
                         then_proc = self._build_proc_for_element(process_data['sequence_flows'][then_flow_id]['target'], process_data, visited.copy()) if then_flow_id else "[]"
-                        else_proc = self._build_proc_for_element(process_data['sequence_flows'][default_flow_id]['target'], process_data, visited.copy()) if default_flow_id else "[]"
+                        else_proc = self._build_proc_for_element(process_data['sequence_flows'][else_flow_id]['target'], process_data, visited.copy()) if else_flow_id else "[]"
                         return f"if({cond_fluent}(ID), {then_proc}, {else_proc})"
                 else:
                     # Functional fluent - use if(fluent(ID) = value, ...)
@@ -1235,7 +1288,11 @@ class PrologTranslator:
                 target_id = process_data['sequence_flows'][flow_id]['target']
                 catch_event = process_data['elements'][target_id]
                 source_event = self._find_throw_event_for_catch(target_id)
-                wait_event_name = self._prologify(source_event['name'])
+                if source_event is None:
+                    # If no throw event found, use the catch event itself
+                    wait_event_name = self._prologify(catch_event.get('name', f'event_{target_id}'))
+                else:
+                    wait_event_name = self._prologify(source_event['name'])
                 rest_of_branch_id = process_data['sequence_flows'][catch_event['outgoing'][0]]['target']
                 rest_of_branch_proc = self._build_proc_for_element(rest_of_branch_id, process_data, visited.copy())
                 branches.append(f"[?(done({wait_event_name}(ID))), {rest_of_branch_proc}]")
@@ -1499,7 +1556,7 @@ class PrologTranslator:
     def _build_loop_body_until_decision(self, start_id, decision_gw_id, loop_back_flow_id, process_data, visited):
         """
         Build loop body from start_id until we reach decision_gw_id.
-        At the decision gateway, only follow the loop-back branch (not the exit branch).
+        The decision gateway itself is NOT included in the loop body - it's handled by the while condition.
         
         Args:
             start_id: Starting element ID
@@ -1515,43 +1572,9 @@ class PrologTranslator:
             return "[]"
         
         if start_id == decision_gw_id:
-            # Reached the decision gateway - only follow loop-back branch
-            decision_gw = process_data['elements'][decision_gw_id]
-            is_functional, branch_values = self._analyze_gateway_branches(decision_gw_id, process_data)
-            cond_fluent = self._get_or_generate_gateway_fluent_name(decision_gw, process_data)
-            
-            # Find which flow is the loop-back
-            loop_back_target = process_data['sequence_flows'][loop_back_flow_id]['target']
-            loop_back_value = branch_values.get(loop_back_flow_id, 'unknown')
-            
-            # Build only the loop-back branch
-            loop_back_proc = self._build_proc_for_element(loop_back_target, process_data, visited.copy())
-            
-            # For the decision gateway in the loop, we generate an if-statement
-            # but the exit branch should just be empty (break from loop)
-            if is_functional:
-                # Build if-statement with only loop-back branch having content
-                outgoing_flows = decision_gw.get('outgoing', [])
-                default_flow_id = decision_gw.get('default')
-                
-                # Identify which branch is loop-back vs exit
-                exit_flow_id = next((f for f in outgoing_flows if f != loop_back_flow_id), None)
-                exit_value = branch_values.get(exit_flow_id, 'unknown') if exit_flow_id else 'unknown'
-                
-                # Create if-statement: loop-back has content, exit is empty
-                if loop_back_flow_id == default_flow_id:
-                    # Loop-back is default
-                    return f"if({cond_fluent}(ID) = {exit_value}, [], {loop_back_proc})"
-                else:
-                    # Loop-back is non-default
-                    return f"if({cond_fluent}(ID) = {loop_back_value}, {loop_back_proc}, [])"
-            else:
-                # Boolean gateway - similar logic
-                default_flow_id = decision_gw.get('default')
-                if loop_back_flow_id == default_flow_id:
-                    return f"if({cond_fluent}(ID), [], {loop_back_proc})"
-                else:
-                    return f"if({cond_fluent}(ID), {loop_back_proc}, [])"
+            # Reached the decision gateway - STOP here, don't include it in the loop body
+            # The while condition already handles the decision
+            return "[]"
         
         # Normal processing
         visited.add(start_id)
@@ -1687,6 +1710,29 @@ class PrologTranslator:
             else:
                 wait_action = f"?(done({elem_name}(end, ID)))"
             current_proc = f"[{elem_name}(start, ID), {wait_action}]"
+        elif self._is_element_type(elem, INTERMEDIATE_CATCH_EVENT):
+            # Handle intermediate catch events (e.g., timers, message catches)
+            elem_name = self._prologify(elem['name'])
+            # Check if this is a timer event or message catch
+            is_timer = any('timerEventDefinition' in str(child) for child in elem.get('children', []))
+            if is_timer and elem_name:
+                # Timer events have start/end actions
+                current_proc = f"[{elem_name}(start, ID), ?(done({elem_name}(end, ID)))]"
+            else:
+                # Message/signal catch - wait for corresponding throw event
+                source_elem = self._find_throw_event_for_catch(start_id)
+                if source_elem:
+                    source_name = self._prologify(source_elem['name'])
+                    current_proc = f"?(done({source_name}(ID)))"
+                elif elem_name:
+                    # If no throw event found, treat as a task-like event
+                    current_proc = f"[{elem_name}(start, ID), ?(done({elem_name}(end, ID)))]"
+                else:
+                    current_proc = ""
+        elif self._is_element_type(elem, INTERMEDIATE_THROW_EVENT):
+            # Handle intermediate throw events
+            elem_name = self._prologify(elem['name'])
+            current_proc = f"{elem_name}(ID)" if elem_name else ""
         elif self._is_element_type(elem, START_EVENT):
             current_proc = ""
         elif self._is_element_type(elem, END_EVENT):
@@ -2178,7 +2224,11 @@ class PrologTranslator:
         return None
     
     def _is_decision_task(self, task_id, process_data):
-        """Check if a task is a decision task (precedes a functional exclusive gateway)."""
+        """
+        Check if a task is a decision task (precedes an exclusive gateway with explicit labels).
+        A decision task is one where the task's output determines which branch is taken,
+        so it needs a 3-parameter end action: task(end, ID, RESULT).
+        """
         task = process_data['elements'].get(task_id)
         if not task or not task['outgoing']: 
             return False
@@ -2189,9 +2239,16 @@ class PrologTranslator:
         if not (next_elem and 'exclusiveGateway' in next_elem['type']):
             return False
         
-        # Check if the gateway is functional (has more than binary branches or explicit values)
-        is_functional, _ = self._analyze_gateway_branches(next_elem['id'], process_data)
-        return is_functional
+        # Check if the gateway has at least one explicitly labeled outgoing flow
+        # (even if the labels are just "true"/"false", the task is still a decision task)
+        outgoing_flows = next_elem.get('outgoing', [])
+        for flow_id in outgoing_flows:
+            flow_info = process_data['sequence_flows'].get(flow_id, {})
+            flow_label = flow_info.get('name', '').strip()
+            if flow_label:  # Has an explicit label
+                return True
+        
+        return False
 
     def _get_decision_values(self, task_id, process_data):
         """

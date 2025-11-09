@@ -60,9 +60,9 @@ initially(pool(_P), true).
 prim_action(acquire(_ID, _POOL)).
 poss(acquire(ID, POOL), and(id(ID), and(waiting(ID, POOL), pool(POOL)))).
 prim_action(application_analysed(_ID)).
-poss(application_analysed(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(letter_of_refusal_sent(ID)), done(store_signed_contract(end, ID))))).
+poss(application_analysed(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(send_letter_of_refusal(ID)), done(store_signed_contract(end, ID))))).
 prim_action(application_finalised(_ID)).
-poss(application_finalised(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(communicate_recruitment(end, ID)), done(letter_of_refusal_sent(ID))))).
+poss(application_finalised(ID), and(neg(done(withdrawal_by_applicant(ID))), or(done(communicate_recruitment(end, ID)), done(send_letter_of_refusal(ID))))).
 prim_action(application_sent(_ID)).
 poss(application_sent(ID), and(done(prepare_application(end, ID)), application(ID))).
 prim_action(assign_contact_partner(start, _ID)).
@@ -72,15 +72,11 @@ poss(check_application_for_interview(start, ID), and(done(assign_contact_partner
 prim_action(check_validity(start, _ID)).
 poss(check_validity(start, ID), and(done(application_sent(ID)), application(ID))).
 prim_action(communicate_recruitment(start, _ID)).
-poss(communicate_recruitment(start, ID), and(done(signed_contract_sent(ID)), signed_contract(ID))).
+poss(communicate_recruitment(start, ID), and(done(send_signed_contract(ID)), signed_contract(ID))).
 prim_action(confirm_withdrawal(start, _ID)).
 poss(confirm_withdrawal(start, ID), done(withdrawal_by_applicant(ID))).
-prim_action(contract_sent(_ID)).
-poss(contract_sent(ID), and(done(produce_contract(end, ID)), contract(ID))).
 prim_action(execute_interview(start, _ID)).
 poss(execute_interview(start, ID), done(plan_interview(end, ID))).
-prim_action(letter_of_refusal_sent(_ID)).
-poss(letter_of_refusal_sent(ID), and(done(produce_letter_of_refusal(end, ID)), letter_of_refusal(ID))).
 prim_action(obtain_approval(start, _ID)).
 poss(obtain_approval(start, ID), job_offer(ID)).
 prim_action(organize_documents(start, _ID)).
@@ -95,12 +91,16 @@ prim_action(produce_contract(start, _ID)).
 poss(produce_contract(start, ID), approval(ID)).
 prim_action(produce_letter_of_refusal(start, _ID)).
 poss(produce_letter_of_refusal(start, ID), neg(and(approval(ID), and(documents_ok(ID), and(interview(ID), job_offer(ID)))))).
+prim_action(send_contract(_ID)).
+poss(send_contract(ID), and(done(produce_contract(end, ID)), contract(ID))).
+prim_action(send_letter_of_refusal(_ID)).
+poss(send_letter_of_refusal(ID), and(done(produce_letter_of_refusal(end, ID)), letter_of_refusal(ID))).
+prim_action(send_signed_contract(_ID)).
+poss(send_signed_contract(ID), and(done(sign_contract(end, ID)), signed_contract(ID))).
 prim_action(sign_contract(start, _ID)).
-poss(sign_contract(start, ID), and(done(contract_sent(ID)), contract(ID))).
-prim_action(signed_contract_sent(_ID)).
-poss(signed_contract_sent(ID), and(done(sign_contract(end, ID)), signed_contract(ID))).
+poss(sign_contract(start, ID), and(done(send_contract(ID)), contract(ID))).
 prim_action(store_signed_contract(start, _ID)).
-poss(store_signed_contract(start, ID), and(done(signed_contract_sent(ID)), signed_contract(ID))).
+poss(store_signed_contract(start, ID), and(done(send_signed_contract(ID)), signed_contract(ID))).
 prim_action(validate_job_offer(start, _ID)).
 poss(validate_job_offer(start, ID), done(obtain_approval(end, ID))).
 prim_action(verify_prerequisites(start, _ID)).
@@ -215,16 +215,16 @@ proc(applicant(ID),
 [
   prepare_application(start,  ID),
    ?(done(prepare_application(end,  ID))),  application_sent(ID),  ndet([
-    ?(done(contract_sent(ID))),
+    ?(done(send_contract(ID))),
      [
       sign_contract(start,  ID),
-      ?(done(sign_contract(end,  ID))),  signed_contract_sent(ID),  communicate_recruitment(start,  ID),
+      ?(done(sign_contract(end,  ID))),  send_signed_contract(ID),  communicate_recruitment(start,  ID),
       ?(done(communicate_recruitment(end,  ID))),  application_finalised(ID)
     ]
   ]
   ,
    [
-    ?(done(letter_of_refusal_sent(ID))),  application_finalised(ID)
+    ?(done(send_letter_of_refusal(ID))),  application_finalised(ID)
   ]
   )
 ]
@@ -277,30 +277,30 @@ proc(company(ID),
           if(approval(ID),
            [
             produce_contract(start,  ID),
-            ?(done(produce_contract(end,  ID))),  contract_sent(ID),
+            ?(done(produce_contract(end,  ID))),  send_contract(ID),
              [
-              ?(done(signed_contract_sent(ID))),  store_signed_contract(start,  ID),
+              ?(done(send_signed_contract(ID))),  store_signed_contract(start,  ID),
               ?(done(store_signed_contract(end,  ID))),  application_analysed(ID)
             ]
           ]
           ,
            [
             produce_letter_of_refusal(start,  ID),
-            ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+            ?(done(produce_letter_of_refusal(end,  ID))),  send_letter_of_refusal(ID),  application_analysed(ID)
           ]
           )
         ]
         ,
          [
           produce_letter_of_refusal(start,  ID),
-          ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+          ?(done(produce_letter_of_refusal(end,  ID))),  send_letter_of_refusal(ID),  application_analysed(ID)
         ]
         )
       ]
       ,
        [
         produce_letter_of_refusal(start,  ID),
-        ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+        ?(done(produce_letter_of_refusal(end,  ID))),  send_letter_of_refusal(ID),  application_analysed(ID)
       ]
       )
     ]
@@ -308,7 +308,7 @@ proc(company(ID),
   ,
    [
     produce_letter_of_refusal(start,  ID),
-    ?(done(produce_letter_of_refusal(end,  ID))),  letter_of_refusal_sent(ID),  application_analysed(ID)
+    ?(done(produce_letter_of_refusal(end,  ID))),  send_letter_of_refusal(ID),  application_analysed(ID)
   ]
   )
 ]

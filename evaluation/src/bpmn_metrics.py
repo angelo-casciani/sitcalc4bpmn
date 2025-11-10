@@ -8,21 +8,21 @@ This module parses BPMN XML files and extracts:
 
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Optional
 import re
+import sys
 
 
 @dataclass
 class BPMNMetrics:
-    """Container for BPMN model metrics."""
     num_tasks: int
     num_exclusive_gateways: int
     num_parallel_gateways: int
     num_events: int
     num_pools: int
     num_subprocesses: int
+    num_data_objects: int
     
-    # Elements for sample generation
     task_names: List[str]
     task_ids: List[str]
     gateway_conditions: List[str]
@@ -37,13 +37,11 @@ class BPMNMetrics:
     parallel_branches: List[List[str]] = field(default_factory=list)  # List of task groups that can execute in parallel
     
     def total_elements(self) -> int:
-        """Return total number of elements."""
         return (self.num_tasks + self.num_exclusive_gateways + 
                 self.num_parallel_gateways + self.num_events + 
                 self.num_pools + self.num_subprocesses)
     
     def to_dict(self) -> Dict:
-        """Convert to dictionary for CSV export."""
         return {
             'num_tasks': self.num_tasks,
             'num_exclusive_gateways': self.num_exclusive_gateways,
@@ -51,14 +49,12 @@ class BPMNMetrics:
             'num_events': self.num_events,
             'num_pools': self.num_pools,
             'num_subprocesses': self.num_subprocesses,
+            'num_data_objects': self.num_data_objects,
             'total_elements': self.total_elements()
         }
 
 
 class BPMNMetricsExtractor:
-    """Extract metrics and elements from BPMN XML files."""
-    
-    # BPMN namespace
     BPMN_NS = {'bpmn': 'http://www.omg.org/spec/BPMN/20100524/MODEL'}
     
     def __init__(self, bpmn_file_path: str):
@@ -195,6 +191,7 @@ class BPMNMetricsExtractor:
             num_events=len(event_elements),
             num_pools=len(pools),
             num_subprocesses=len(subprocesses),
+            num_data_objects=len(data_objects) + len(data_object_refs),
             task_names=task_names,
             task_ids=task_ids,
             gateway_conditions=gateway_conditions,
@@ -396,9 +393,6 @@ def extract_bpmn_metrics(bpmn_file_path: str) -> BPMNMetrics:
 
 
 if __name__ == '__main__':
-    import sys
-    import json
-    
     if len(sys.argv) < 2:
         print("Usage: python bpmn_metrics.py <bpmn_file_path>")
         sys.exit(1)
@@ -414,6 +408,7 @@ if __name__ == '__main__':
     print(f"Events:               {metrics.num_events}")
     print(f"Pools:                {metrics.num_pools}")
     print(f"Subprocesses:         {metrics.num_subprocesses}")
+    print(f"Data Objects:         {metrics.num_data_objects}")
     print(f"Total Elements:       {metrics.total_elements()}")
     print("\nTask Names:", metrics.task_names[:5], "..." if len(metrics.task_names) > 5 else "")
     print("Gateway Conditions:", metrics.gateway_conditions[:3], "..." if len(metrics.gateway_conditions) > 3 else "")

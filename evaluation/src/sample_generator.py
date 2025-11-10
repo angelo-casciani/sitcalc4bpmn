@@ -6,11 +6,11 @@ This module generates test samples for different reasoning tasks:
 - Conformance: samples testing if traces are conformant (true) or not conformant (false)
 """
 import csv
-from bpmn_metrics import extract_bpmn_metrics, BPMNMetrics
 import re
 import random
 import os
 from typing import List, Tuple, Dict
+import traceback
 from trace_generator import SimpleBPMNSimulator
 
 RANDOM_SEED = 42
@@ -18,9 +18,8 @@ random.seed(RANDOM_SEED)
 
 
 class SampleGenerator:    
-    def __init__(self, model_name: str, bpmn_metrics: BPMNMetrics, prolog_model_path: str = None):
+    def __init__(self, model_name: str, prolog_model_path: str = None):
         self.model_name = model_name
-        self.metrics = bpmn_metrics
         self.prolog_model_path = prolog_model_path
     
     def _convert_to_indigolog_actions(self, trace_with_types, trace_percentage=1.0, include_acquire=False):
@@ -34,8 +33,6 @@ class SampleGenerator:
         Returns:
             List of IndiGolog-formatted action strings
         """
-        import math
-        
         if not trace_with_types:
             return ['start_event(1)']
         
@@ -310,9 +307,8 @@ if __name__ == '__main__':
             
             # Model name is now just the filename since files are directly in processed/
             model_name = os.path.basename(bpmn_file)
-            metrics = extract_bpmn_metrics(str(bpmn_file))
             
-            generator = SampleGenerator(model_name, metrics)
+            generator = SampleGenerator(model_name)
             
             # Generate exactly 8 samples per model
             samples = generator.generate_samples_from_traces(traces_with_types, model_name)
@@ -326,7 +322,6 @@ if __name__ == '__main__':
             all_samples.extend(samples)
         except Exception as e:
             print(f"  Error processing {bpmn_file}: {e}")
-            import traceback
             traceback.print_exc()
             continue
     
@@ -334,8 +329,9 @@ if __name__ == '__main__':
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     if all_samples:
+        fieldnames = ['sample_id', 'model_name', 'task_type', 'description', 'actions', 'expected_result']
         with open(output_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=all_samples[0].keys())
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for sample in all_samples:
                 writer.writerow(sample)

@@ -13,18 +13,62 @@ sys.path.insert(0, main_src_dir)
 from metrics_collector import MetricsCollector, ReasoningMetrics
 from translator_service import TranslatorService
 from reasoning_service import ReasoningService
+from bpmn_metrics import extract_bpmn_metrics
 
 
 class BPMNEvaluator:
-    def __init__(self, dataset_dir: str, output_dir: str):
+    def __init__(self, dataset_dir: str, output_dir: str, resume_csv: str = None):
         self.dataset_dir = dataset_dir
         self.output_dir = output_dir
         self.results = []
+        self.bpmn_metrics = []  # Store BPMN model metrics
+        self.current_datetime_str = None  # Store timestamp for file naming
+        self.resume_csv = resume_csv  # Path to CSV file for resuming
+        self.evaluated_samples = set()  # Track already evaluated sample IDs
         os.makedirs(os.path.join(output_dir, 'results'), exist_ok=True)
         self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.pl_models_dir = os.path.join(self.project_root, 'pl_models', 'evaluation_temp')
         os.makedirs(self.pl_models_dir, exist_ok=True)
         self.translator = TranslatorService(output_dir=self.pl_models_dir)
+        
+        # Load existing results if resuming
+        if self.resume_csv and os.path.exists(self.resume_csv):
+            self._load_existing_results()
+    
+    def _load_existing_results(self):
+        """Load existing results from resume CSV file."""
+        print(f"\nResuming from: {self.resume_csv}")
+        
+        # Extract timestamp from filename
+        import re
+        basename = os.path.basename(self.resume_csv)
+        match = re.search(r'(\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2})', basename)
+        if match:
+            self.current_datetime_str = match.group(1)
+            print(f"Using timestamp: {self.current_datetime_str}")
+        
+        # Load existing results
+        with open(self.resume_csv, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Store the result
+                self.results.append({
+                    'model_name': row['model_name'],
+                    'task_type': row['task_type'],
+                    'sample_id': int(row['sample_id']),
+                    'expected': row['expected'].lower() == 'true',
+                    'returned': row['returned'].lower() == 'true',
+                    'correct': row['correct'].lower() == 'true',
+                    'reasoning_time': float(row['reasoning_time']),
+                    'inferences': int(row['inferences'])
+                })
+                
+                # Track sample ID and model combination
+                sample_key = (row['model_name'], int(row['sample_id']))
+                self.evaluated_samples.add(sample_key)
+        
+        print(f"Loaded {len(self.results)} existing results")
+        print(f"Will skip {len(self.evaluated_samples)} already evaluated samples\n")
     
     def translate_bpmn_model(self, bpmn_path: str, model_name: str) -> str:
         try:
@@ -185,6 +229,16 @@ class BPMNEvaluator:
         if not os.path.exists(bpmn_file):
             print(f"  Error: BPMN file not found: {bpmn_file}")
             return
+        
+        # Extract BPMN metrics
+        try:
+            metrics = extract_bpmn_metrics(bpmn_file)
+            metrics_dict = metrics.to_dict()
+            metrics_dict['model_name'] = model_name
+            self.bpmn_metrics.append(metrics_dict)
+        except Exception as e:
+            print(f"  Warning: Could not extract BPMN metrics: {e}")
+        
         model_id = self.translate_bpmn_model(bpmn_file, model_name)
         if not model_id:
             print(f"  Error: Translation failed for {model_name}")
@@ -201,6 +255,12 @@ class BPMNEvaluator:
         correct = 0
         total = 0
         for sample in samples:
+            # Check if this sample was already evaluated (for resume mode)
+            sample_key = (model_name, sample['sample_id'])
+            if sample_key in self.evaluated_samples:
+                print(f"\n  Sample {sample['sample_id']} - SKIPPED (already evaluated)")
+                continue
+            
             total += 1
             task_type = sample['task_type']
             print(f"\n  Sample {sample['sample_id']} ({task_type}):")
@@ -268,7 +328,6 @@ class BPMNEvaluator:
         for model_name, samples in sorted(samples_by_model.items()):
             self.evaluate_model(model_name, samples)
         self.save_results('_leg_conf')
-        self.print_summary()
     
     def run_projection_verification_evaluation(self):
         print("\n" + "="*70)
@@ -287,7 +346,6 @@ class BPMNEvaluator:
             self.evaluate_model_with_dataset(model_name, samples, exams_dataset_dir)
         
         self.save_results('_proj_verif')
-        self.print_summary()
     
     def evaluate_model_with_dataset(self, model_name: str, samples: List[Dict], dataset_dir: str):
         """Evaluate a single BPMN model with its samples from a specific dataset directory.
@@ -306,6 +364,15 @@ class BPMNEvaluator:
             print(f"  Error: BPMN file not found: {bpmn_file}")
             return
         
+        # Extract BPMN metrics
+        try:
+            metrics = extract_bpmn_metrics(bpmn_file)
+            metrics_dict = metrics.to_dict()
+            metrics_dict['model_name'] = model_name
+            self.bpmn_metrics.append(metrics_dict)
+        except Exception as e:
+            print(f"  Warning: Could not extract BPMN metrics: {e}")
+        
         model_id = self.translate_bpmn_model(bpmn_file, model_name)
         if not model_id:
             print(f"  Error: Translation failed for {model_name}")
@@ -323,6 +390,12 @@ class BPMNEvaluator:
         correct = 0
         total = 0
         for sample in samples:
+            # Check if this sample was already evaluated (for resume mode)
+            sample_key = (model_name, sample['sample_id'])
+            if sample_key in self.evaluated_samples:
+                print(f"\n  Sample {sample['sample_id']} - SKIPPED (already evaluated)")
+                continue
+            
             total += 1
             task_type = sample['task_type']
             print(f"\n  Sample {sample['sample_id']} ({task_type}):")
@@ -378,31 +451,76 @@ class BPMNEvaluator:
         print(f"\n  Model Accuracy: {correct}/{total} ({accuracy:.1f}%)")
     
     def save_results(self, suffix=''):
-        datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-        filename = f'evaluation_results{suffix}_{datetime_str}.csv'
-        output_file = os.path.join(self.output_dir, 'results', filename)        
-        with open(output_file, 'w', newline='') as f:
-            if self.results:
-                writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
-                writer.writeheader()
-                writer.writerows(self.results)
+        # If resuming, use the existing file and timestamp
+        if self.resume_csv and self.current_datetime_str:
+            output_file = self.resume_csv
+            print(f"\nAppending results to existing file: {output_file}")
+            
+            # Write all results (existing + new) to the file
+            with open(output_file, 'w', newline='') as f:
+                if self.results:
+                    writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
+                    writer.writeheader()
+                    writer.writerows(self.results)
+        else:
+            # Normal mode: create new file with new timestamp
+            self.current_datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+            
+            # Save evaluation results
+            filename = f'evaluation_results{suffix}_{self.current_datetime_str}.csv'
+            output_file = os.path.join(self.output_dir, 'results', filename)        
+            with open(output_file, 'w', newline='') as f:
+                if self.results:
+                    writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
+                    writer.writeheader()
+                    writer.writerows(self.results)
         
-        print(f"\n Results saved to: {output_file}")
+        print(f"Results saved to: {output_file}")
+        
+        # Save BPMN metrics
+        if self.bpmn_metrics:
+            metrics_filename = f'bpmn_metrics{suffix}.csv'
+            metrics_output_file = os.path.join(self.output_dir, 'bpmn_metrics', metrics_filename)
+            with open(metrics_output_file, 'w', newline='') as f:
+                fieldnames = ['model_name'] + [k for k in self.bpmn_metrics[0].keys() if k != 'model_name']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(self.bpmn_metrics)
+            
+            print(f"BPMN metrics saved to: {metrics_output_file}")
+        
+        return output_file
     
-    def print_summary(self):
-        if not self.results:
+    def generate_summary_from_csv(self, csv_file_path: str, suffix=''):
+        """Generate summary statistics from the evaluation results CSV file.
+        
+        Args:
+            csv_file_path: Path to the evaluation results CSV file
+            suffix: Suffix for the output summary file name
+        """
+        # Read results from CSV
+        results = []
+        with open(csv_file_path, 'r', newline='') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                results.append({
+                    'task_type': row['task_type'],
+                    'correct': row['correct'].lower() == 'true'
+                })
+        
+        if not results:
             print("\nNo results to summarize.")
             return
         
-        total = len(self.results)
-        correct = sum(1 for r in self.results if r['correct'])
+        total = len(results)
+        correct = sum(1 for r in results if r['correct'])
         accuracy = (correct / total * 100) if total > 0 else 0
         
         # Group by task type
-        legality_results = [r for r in self.results if r['task_type'] == 'legality']
-        conformance_results = [r for r in self.results if r['task_type'] == 'conformance']
-        projection_results = [r for r in self.results if r['task_type'] == 'projection']
-        verification_results = [r for r in self.results if r['task_type'] == 'verification']
+        legality_results = [r for r in results if r['task_type'] == 'legality']
+        conformance_results = [r for r in results if r['task_type'] == 'conformance']
+        projection_results = [r for r in results if r['task_type'] == 'projection']
+        verification_results = [r for r in results if r['task_type'] == 'verification']
         
         legality_correct = sum(1 for r in legality_results if r['correct'])
         conformance_correct = sum(1 for r in conformance_results if r['correct'])
@@ -414,44 +532,123 @@ class BPMNEvaluator:
         projection_acc = (projection_correct / len(projection_results) * 100) if projection_results else 0
         verification_acc = (verification_correct / len(verification_results) * 100) if verification_results else 0
         
-        print("\n" + "="*70)
-        print("EVALUATION SUMMARY")
-        print("="*70)
-        print(f"Total samples: {total}")
-        print(f"Correct: {correct}")
-        print(f"Overall Accuracy: {accuracy:.1f}%")
-        print()
+        # Build summary text
+        summary_lines = []
+        summary_lines.append("=" * 70)
+        summary_lines.append("EVALUATION SUMMARY")
+        summary_lines.append("=" * 70)
+        summary_lines.append(f"Total samples: {total}")
+        summary_lines.append(f"Correct: {correct}")
+        summary_lines.append(f"Overall Accuracy: {accuracy:.1f}%")
+        summary_lines.append("")
         
         if legality_results:
-            print(f"Legality: {legality_correct}/{len(legality_results)} ({legality_acc:.1f}%)")
+            summary_lines.append(f"Legality: {legality_correct}/{len(legality_results)} ({legality_acc:.1f}%)")
         if conformance_results:
-            print(f"Conformance: {conformance_correct}/{len(conformance_results)} ({conformance_acc:.1f}%)")
+            summary_lines.append(f"Conformance: {conformance_correct}/{len(conformance_results)} ({conformance_acc:.1f}%)")
         if projection_results:
-            print(f"Projection: {projection_correct}/{len(projection_results)} ({projection_acc:.1f}%)")
+            summary_lines.append(f"Projection: {projection_correct}/{len(projection_results)} ({projection_acc:.1f}%)")
         if verification_results:
-            print(f"Property Verification: {verification_correct}/{len(verification_results)} ({verification_acc:.1f}%)")
+            summary_lines.append(f"Property Verification: {verification_correct}/{len(verification_results)} ({verification_acc:.1f}%)")
         
-        print("="*70)
+        summary_lines.append("=" * 70)
+        
+        # Print to console
+        print("\n" + "\n".join(summary_lines))
+        
+        # Save to file
+        if self.current_datetime_str:
+            summary_filename = f'evaluation_summary{suffix}_{self.current_datetime_str}.txt'
+            summary_output_file = os.path.join(self.output_dir, 'results', summary_filename)
+            with open(summary_output_file, 'w') as f:
+                f.write("\n".join(summary_lines) + "\n")
+            print(f"\nSummary saved to: {summary_output_file}")
+    
+    def assess_results(self, csv_file_path: str, suffix: str):
+        """Assess results from a specific CSV file and generate summary.
+        
+        Args:
+            csv_file_path: Path to the evaluation results CSV file
+            suffix: Suffix for the output summary file (e.g., '_leg_conf')
+        """
+        if not os.path.exists(csv_file_path):
+            print(f"Error: CSV file not found: {csv_file_path}")
+            return
+        
+        # Extract timestamp from CSV filename if possible
+        basename = os.path.basename(csv_file_path)
+        # Try to extract timestamp from filename like: evaluation_results_leg_conf_2025-11-10_09:44:50.csv
+        import re
+        match = re.search(r'(\d{4}-\d{2}-\d{2}_\d{2}:\d{2}:\d{2})', basename)
+        if match:
+            self.current_datetime_str = match.group(1)
+        else:
+            # Use current timestamp if we can't extract it
+            self.current_datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+        
+        self.generate_summary_from_csv(csv_file_path, suffix)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='BPMN Evaluation - Legality, Conformance, Projection, and Property Verification')
+    parser.add_argument('--mode', type=str, default='test', 
+                       choices=['test', 'assess'],
+                       help='Mode: test (run evaluation) or assess (generate summary from existing CSV)')
     parser.add_argument('--task', type=str, default='all', 
                        choices=['legality_conformance', 'projection_verification', 'all'],
-                       help='Which evaluation to run: legality_conformance, projection_verification, or all (default: all)')
+                       help='Which evaluation to run/assess: legality_conformance, projection_verification, or all (default: all)')
+    parser.add_argument('--csv', type=str, default=None,
+                       help='Path to CSV file for assessment mode (optional, will find latest if not provided)')
+    parser.add_argument('--resume', type=str, default=None,
+                       help='Path to incomplete CSV file to resume evaluation from (test mode only)')
     args = parser.parse_args()
     
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     dataset_dir = os.path.join(project_root, 'bpmn', 'dataset', 'processed')
     output_dir = os.path.join(project_root, 'evaluation')
     
-    evaluator = BPMNEvaluator(dataset_dir, output_dir)
+    evaluator = BPMNEvaluator(dataset_dir, output_dir, resume_csv=args.resume)
     
-    if args.task in ['legality_conformance', 'all']:
-        evaluator.run_evaluation()
+    if args.mode == 'test':
+        # Run evaluation tests
+        if args.task in ['legality_conformance', 'all']:
+            evaluator.run_evaluation()
+            
+        if args.task in ['projection_verification', 'all']:
+            # Reset results and metrics for separate evaluation
+            if args.task == 'all':
+                evaluator.results = []
+                evaluator.bpmn_metrics = []
+            evaluator.run_projection_verification_evaluation()
+    
+    elif args.mode == 'assess':
+        # Assess existing results
+        results_dir = os.path.join(output_dir, 'results')
         
-    if args.task in ['projection_verification', 'all']:
-        # Reset results for separate evaluation
-        if args.task == 'all':
-            evaluator.results = []
-        evaluator.run_projection_verification_evaluation()
+        if args.task in ['legality_conformance', 'all']:
+            if args.csv:
+                csv_file = args.csv
+            else:
+                # Find latest legality_conformance CSV
+                import glob
+                csv_files = glob.glob(os.path.join(results_dir, 'evaluation_results_leg_conf_*.csv'))
+                if not csv_files:
+                    print("Error: No legality_conformance CSV files found in results directory")
+                else:
+                    csv_file = max(csv_files, key=os.path.getmtime)
+                    print(f"Assessing latest legality_conformance results: {csv_file}")
+                    evaluator.assess_results(csv_file, '_leg_conf')
+        
+        if args.task in ['projection_verification', 'all']:
+            if args.csv and args.task == 'projection_verification':
+                csv_file = args.csv
+            else:
+                # Find latest projection_verification CSV
+                import glob
+                csv_files = glob.glob(os.path.join(results_dir, 'evaluation_results_proj_verif_*.csv'))
+                if not csv_files:
+                    print("Error: No projection_verification CSV files found in results directory")
+                else:
+                    csv_file = max(csv_files, key=os.path.getmtime)
+                    print(f"Assessing latest projection_verification results: {csv_file}")
+                    evaluator.assess_results(csv_file, '_proj_verif')

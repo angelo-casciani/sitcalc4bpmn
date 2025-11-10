@@ -22,9 +22,12 @@ class BPMNEvaluator:
         self.output_dir = output_dir
         self.results = []
         self.bpmn_metrics = []  # Store BPMN model metrics
+        self.translation_metrics = []  # Store translation metrics
         self.current_datetime_str = None  # Store timestamp for file naming
         self.resume_csv = resume_csv  # Path to CSV file for resuming
         self.evaluated_samples = set()  # Track already evaluated sample IDs
+        self.current_results_file = None  # Current CSV file path for incremental saving
+        self.csv_fieldnames = ['model_name', 'task_type', 'sample_id', 'expected', 'returned', 'correct', 'reasoning_time', 'inferences']
         os.makedirs(os.path.join(output_dir, 'results'), exist_ok=True)
         self.project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.pl_models_dir = os.path.join(self.project_root, 'pl_models', 'evaluation_temp')
@@ -46,6 +49,9 @@ class BPMNEvaluator:
         if match:
             self.current_datetime_str = match.group(1)
             print(f"Using timestamp: {self.current_datetime_str}")
+        
+        # Set the current results file to the resume file
+        self.current_results_file = self.resume_csv
         
         # Load existing results
         with open(self.resume_csv, 'r', newline='') as f:
@@ -70,15 +76,67 @@ class BPMNEvaluator:
         print(f"Loaded {len(self.results)} existing results")
         print(f"Will skip {len(self.evaluated_samples)} already evaluated samples\n")
     
+    def _initialize_results_file(self, suffix=''):
+        """Initialize the results CSV file with headers."""
+        if not self.current_results_file:
+            # Create new file with timestamp
+            self.current_datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
+            filename = f'evaluation_results{suffix}_{self.current_datetime_str}.csv'
+            self.current_results_file = os.path.join(self.output_dir, 'results', filename)
+            
+            # Write header
+            with open(self.current_results_file, 'w', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=self.csv_fieldnames)
+                writer.writeheader()
+            
+            print(f"Initialized results file: {self.current_results_file}")
+    
+    def _append_result_to_file(self, result: Dict):
+        """Append a single result to the CSV file immediately."""
+        if not self.current_results_file:
+            raise RuntimeError("Results file not initialized. Call _initialize_results_file() first.")
+        
+        # Append the result to the CSV file
+        with open(self.current_results_file, 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.csv_fieldnames)
+            writer.writerow(result)
+    
     def translate_bpmn_model(self, bpmn_path: str, model_name: str) -> str:
         try:
+            import time
+            import re
+            
             model_id = model_name.replace('.bpmn', '')
             eval_model_name = f'{model_id}'
-            success, message, _, _ = self.translator.translate_bpmn_file(bpmn_path, eval_model_name)
+            
+            # Measure translation time
+            start_time = time.time()
+            success, message, translated_path, prolog_code = self.translator.translate_bpmn_file(bpmn_path, eval_model_name)
+            translation_time = time.time() - start_time
             
             if not success:
                 print(f"  Translation failed: {message}")
                 return None
+            
+            # Collect translation metrics
+            if prolog_code:
+                # Count lines
+                program_size_lines = len(prolog_code.split('\n'))
+                
+                # Count actions (primitiveAction declarations)
+                num_actions = len(re.findall(r'primitiveAction\s*\(', prolog_code))
+                
+                # Count fluents (primitive_fluent declarations)
+                num_fluents = len(re.findall(r'primitive_fluent\s*\(', prolog_code))
+                
+                # Store translation metrics
+                self.translation_metrics.append({
+                    'model_name': model_name,
+                    'translation_time_sec': translation_time,
+                    'num_actions': num_actions,
+                    'num_fluents': num_fluents,
+                    'program_size_lines': program_size_lines
+                })
             
             return eval_model_name
         except Exception as e:
@@ -105,9 +163,9 @@ class BPMNEvaluator:
             from reason import parse_action_list
             history_str = ', '.join(sample['actions'])
             history_actions = parse_action_list(history_str)
-            reversed_history = list(reversed(history_actions))
+            # Note: actions are already reversed in the sample, so no need to reverse again
             # Call reasoner method directly to get raw output
-            success, raw_output = reasoner.reasoner.conformance_checking(reversed_history)
+            success, raw_output = reasoner.reasoner.conformance_checking(history_actions)
             metrics = MetricsCollector.parse_prolog_output(raw_output, success)
             return metrics
         
@@ -192,7 +250,7 @@ class BPMNEvaluator:
                     continue    
                 
                 # Parse actions (empty for verification tasks)
-                actions = [a.strip() for a in row['actions'].split(';') if a.strip()]
+                actions = [a.strip() for a in row['actions'].split(',') if a.strip()]
                 expected_result = row['expected_result'].lower() == 'true'
                 
                 sample = {
@@ -288,8 +346,14 @@ class BPMNEvaluator:
 
             if metrics:
                 # Check correctness
-                # Map result to boolean: success = True, failure = False
-                actual_result = metrics.result == 'success'
+                # Map result to boolean based on task type:
+                # - legality/projection/verification: success = True, failure = False
+                # - conformance: conforms = True, not_conforms = False
+                if task_type == 'conformance':
+                    actual_result = metrics.result == 'conforms'
+                else:
+                    actual_result = metrics.result == 'success'
+                
                 is_correct = actual_result == sample['expected_result']
                 
                 if is_correct:
@@ -299,7 +363,7 @@ class BPMNEvaluator:
                     print(f"    Incorrect (result: {metrics.result}, expected: {sample['expected_result']})")
                 
                 # Store result
-                self.results.append({
+                result = {
                     'model_name': model_name,
                     'task_type': task_type,
                     'sample_id': sample['sample_id'],
@@ -308,7 +372,11 @@ class BPMNEvaluator:
                     'correct': is_correct,
                     'reasoning_time': metrics.reasoning_time,
                     'inferences': metrics.inferences
-                })
+                }
+                self.results.append(result)
+                
+                # Save immediately to CSV
+                self._append_result_to_file(result)
             else:
                 print(f"    Task failed (no metrics)")
         
@@ -319,6 +387,9 @@ class BPMNEvaluator:
         print("\n" + "="*70)
         print("EVALUATION - LEGALITY & CONFORMANCE")
         print("="*70)
+        
+        # Initialize results file
+        self._initialize_results_file('_leg_conf')
         
         csv_path = os.path.join(self.output_dir, 'datasets', 'samples_leg_conf.csv')
         print(f"\nLoading samples from: {csv_path}")
@@ -333,6 +404,9 @@ class BPMNEvaluator:
         print("\n" + "="*70)
         print("EVALUATION - PROJECTION & PROPERTY VERIFICATION")
         print("="*70)
+        
+        # Initialize results file
+        self._initialize_results_file('_proj_verif')
         
         csv_path = os.path.join(self.output_dir, 'datasets', 'samples_proj_verif.csv')
         print(f"\nLoading samples from: {csv_path}")
@@ -423,8 +497,14 @@ class BPMNEvaluator:
 
             if metrics:
                 # Check correctness
-                # Map result to boolean: success = True, failure = False
-                actual_result = metrics.result == 'success'
+                # Map result to boolean based on task type:
+                # - legality/projection/verification: success = True, failure = False
+                # - conformance: conforms = True, not_conforms = False
+                if task_type == 'conformance':
+                    actual_result = metrics.result == 'conforms'
+                else:
+                    actual_result = metrics.result == 'success'
+                
                 is_correct = actual_result == sample['expected_result']
                 
                 if is_correct:
@@ -434,7 +514,7 @@ class BPMNEvaluator:
                     print(f"    Incorrect (result: {metrics.result}, expected: {sample['expected_result']})")
                 
                 # Store result
-                self.results.append({
+                result = {
                     'model_name': model_name,
                     'task_type': task_type,
                     'sample_id': sample['sample_id'],
@@ -443,7 +523,11 @@ class BPMNEvaluator:
                     'correct': is_correct,
                     'reasoning_time': metrics.reasoning_time,
                     'inferences': metrics.inferences
-                })
+                }
+                self.results.append(result)
+                
+                # Save immediately to CSV
+                self._append_result_to_file(result)
             else:
                 print(f"    Task failed (no metrics)")
         
@@ -451,31 +535,14 @@ class BPMNEvaluator:
         print(f"\n  Model Accuracy: {correct}/{total} ({accuracy:.1f}%)")
     
     def save_results(self, suffix=''):
-        # If resuming, use the existing file and timestamp
-        if self.resume_csv and self.current_datetime_str:
-            output_file = self.resume_csv
-            print(f"\nAppending results to existing file: {output_file}")
-            
-            # Write all results (existing + new) to the file
-            with open(output_file, 'w', newline='') as f:
-                if self.results:
-                    writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
-                    writer.writeheader()
-                    writer.writerows(self.results)
-        else:
-            # Normal mode: create new file with new timestamp
-            self.current_datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
-            
-            # Save evaluation results
-            filename = f'evaluation_results{suffix}_{self.current_datetime_str}.csv'
-            output_file = os.path.join(self.output_dir, 'results', filename)        
-            with open(output_file, 'w', newline='') as f:
-                if self.results:
-                    writer = csv.DictWriter(f, fieldnames=self.results[0].keys())
-                    writer.writeheader()
-                    writer.writerows(self.results)
+        """Save BPMN metrics, translation metrics, and finalize results file.
         
-        print(f"Results saved to: {output_file}")
+        Note: Individual results are already saved incrementally during evaluation.
+        This method primarily handles BPMN and translation metrics saving and final reporting.
+        """
+        # Results file path is already set
+        output_file = self.current_results_file
+        print(f"\nResults saved to: {output_file}")
         
         # Save BPMN metrics
         if self.bpmn_metrics:
@@ -488,6 +555,18 @@ class BPMNEvaluator:
                 writer.writerows(self.bpmn_metrics)
             
             print(f"BPMN metrics saved to: {metrics_output_file}")
+        
+        # Save translation metrics
+        if self.translation_metrics:
+            trans_metrics_filename = f'translation_metrics{suffix}.csv'
+            trans_metrics_output_file = os.path.join(self.output_dir, 'bpmn_metrics', trans_metrics_filename)
+            with open(trans_metrics_output_file, 'w', newline='') as f:
+                fieldnames = ['model_name', 'translation_time_sec', 'num_actions', 'num_fluents', 'program_size_lines']
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(self.translation_metrics)
+            
+            print(f"Translation metrics saved to: {trans_metrics_output_file}")
         
         return output_file
     
@@ -505,7 +584,9 @@ class BPMNEvaluator:
             for row in reader:
                 results.append({
                     'task_type': row['task_type'],
-                    'correct': row['correct'].lower() == 'true'
+                    'correct': row['correct'].lower() == 'true',
+                    'reasoning_time': float(row['reasoning_time']),
+                    'inferences': int(row['inferences'])
                 })
         
         if not results:
@@ -515,6 +596,10 @@ class BPMNEvaluator:
         total = len(results)
         correct = sum(1 for r in results if r['correct'])
         accuracy = (correct / total * 100) if total > 0 else 0
+        
+        # Compute averages
+        avg_time = sum(r['reasoning_time'] for r in results) / total
+        avg_inferences = sum(r['inferences'] for r in results) / total
         
         # Group by task type
         legality_results = [r for r in results if r['task_type'] == 'legality']
@@ -532,6 +617,17 @@ class BPMNEvaluator:
         projection_acc = (projection_correct / len(projection_results) * 100) if projection_results else 0
         verification_acc = (verification_correct / len(verification_results) * 100) if verification_results else 0
         
+        # Compute per-task averages
+        legality_time = sum(r['reasoning_time'] for r in legality_results) / len(legality_results) if legality_results else 0
+        conformance_time = sum(r['reasoning_time'] for r in conformance_results) / len(conformance_results) if conformance_results else 0
+        projection_time = sum(r['reasoning_time'] for r in projection_results) / len(projection_results) if projection_results else 0
+        verification_time = sum(r['reasoning_time'] for r in verification_results) / len(verification_results) if verification_results else 0
+        
+        legality_inf = sum(r['inferences'] for r in legality_results) / len(legality_results) if legality_results else 0
+        conformance_inf = sum(r['inferences'] for r in conformance_results) / len(conformance_results) if conformance_results else 0
+        projection_inf = sum(r['inferences'] for r in projection_results) / len(projection_results) if projection_results else 0
+        verification_inf = sum(r['inferences'] for r in verification_results) / len(verification_results) if verification_results else 0
+        
         # Build summary text
         summary_lines = []
         summary_lines.append("=" * 70)
@@ -540,16 +636,22 @@ class BPMNEvaluator:
         summary_lines.append(f"Total samples: {total}")
         summary_lines.append(f"Correct: {correct}")
         summary_lines.append(f"Overall Accuracy: {accuracy:.1f}%")
+        summary_lines.append(f"Average Reasoning Time: {avg_time:.3f} seconds")
+        summary_lines.append(f"Average Inferences: {avg_inferences:.0f}")
         summary_lines.append("")
         
         if legality_results:
             summary_lines.append(f"Legality: {legality_correct}/{len(legality_results)} ({legality_acc:.1f}%)")
+            summary_lines.append(f"  Avg Time: {legality_time:.3f}s, Avg Inferences: {legality_inf:.0f}")
         if conformance_results:
             summary_lines.append(f"Conformance: {conformance_correct}/{len(conformance_results)} ({conformance_acc:.1f}%)")
+            summary_lines.append(f"  Avg Time: {conformance_time:.3f}s, Avg Inferences: {conformance_inf:.0f}")
         if projection_results:
             summary_lines.append(f"Projection: {projection_correct}/{len(projection_results)} ({projection_acc:.1f}%)")
+            summary_lines.append(f"  Avg Time: {projection_time:.3f}s, Avg Inferences: {projection_inf:.0f}")
         if verification_results:
             summary_lines.append(f"Property Verification: {verification_correct}/{len(verification_results)} ({verification_acc:.1f}%)")
+            summary_lines.append(f"  Avg Time: {verification_time:.3f}s, Avg Inferences: {verification_inf:.0f}")
         
         summary_lines.append("=" * 70)
         
@@ -607,7 +709,13 @@ if __name__ == '__main__':
     dataset_dir = os.path.join(project_root, 'bpmn', 'dataset', 'processed')
     output_dir = os.path.join(project_root, 'evaluation')
     
-    evaluator = BPMNEvaluator(dataset_dir, output_dir, resume_csv=args.resume)
+    # Handle resume CSV path - convert relative to absolute if needed
+    resume_csv = args.resume
+    if resume_csv and not os.path.isabs(resume_csv):
+        # If relative path, assume it's in the results directory
+        resume_csv = os.path.join(output_dir, 'results', resume_csv)
+    
+    evaluator = BPMNEvaluator(dataset_dir, output_dir, resume_csv=resume_csv)
     
     if args.mode == 'test':
         # Run evaluation tests

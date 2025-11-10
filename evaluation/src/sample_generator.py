@@ -131,7 +131,7 @@ class SampleGenerator:
         samples.append({
             'task_type': 'legality',
             'sample_id': 1,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(actions) if actions else '',
             'expected_result': True,
             'model_name': model_name,
             'description': 'legality_small_true'
@@ -145,7 +145,7 @@ class SampleGenerator:
         samples.append({
             'task_type': 'legality',
             'sample_id': 2,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(actions) if actions else '',
             'expected_result': False,
             'model_name': model_name,
             'description': 'legality_small_false'
@@ -158,7 +158,7 @@ class SampleGenerator:
         samples.append({
             'task_type': 'legality',
             'sample_id': 3,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(actions) if actions else '',
             'expected_result': True,
             'model_name': model_name,
             'description': 'legality_large_true'
@@ -172,61 +172,65 @@ class SampleGenerator:
         samples.append({
             'task_type': 'legality',
             'sample_id': 4,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(actions) if actions else '',
             'expected_result': False,
             'model_name': model_name,
             'description': 'legality_large_false'
         })
         
-        # Sample 5: Conformance TRUE - Small (25%, with acquire)
+        # Sample 5: Conformance TRUE - Small (25%, with acquire, reversed)
         trace_4 = get_trace(4)
         sanitized_4 = sanitized_traces[4 % num_traces]
         actions = self._convert_to_indigolog_actions(sanitized_4, trace_percentage=0.25, include_acquire=True)
+        reversed_actions = list(reversed(actions))
         samples.append({
             'task_type': 'conformance',
             'sample_id': 5,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(reversed_actions) if reversed_actions else '',
             'expected_result': True,
             'model_name': model_name,
             'description': 'conformance_small_true'
         })
         
-        # Sample 6: Conformance FALSE - Small (25%, swapped, with acquire)
+        # Sample 6: Conformance FALSE - Small (25%, swapped, with acquire, reversed)
         trace_5 = get_trace(5)
         sanitized_5 = sanitized_traces[5 % num_traces]
         swapped_5 = create_swapped_trace(sanitized_5)
         actions = self._convert_to_indigolog_actions(swapped_5, trace_percentage=0.25, include_acquire=True)
+        reversed_actions = list(reversed(actions))
         samples.append({
             'task_type': 'conformance',
             'sample_id': 6,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(reversed_actions) if reversed_actions else '',
             'expected_result': False,
             'model_name': model_name,
             'description': 'conformance_small_false'
         })
         
-        # Sample 7: Conformance TRUE - Large (50%, with acquire)
+        # Sample 7: Conformance TRUE - Large (50%, with acquire, reversed)
         trace_6 = get_trace(6)
         sanitized_6 = sanitized_traces[6 % num_traces]
         actions = self._convert_to_indigolog_actions(sanitized_6, trace_percentage=0.50, include_acquire=True)
+        reversed_actions = list(reversed(actions))
         samples.append({
             'task_type': 'conformance',
             'sample_id': 7,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(reversed_actions) if reversed_actions else '',
             'expected_result': True,
             'model_name': model_name,
             'description': 'conformance_large_true'
         })
         
-        # Sample 8: Conformance FALSE - Large (50%, swapped, with acquire)
+        # Sample 8: Conformance FALSE - Large (50%, swapped, with acquire, reversed)
         trace_7 = get_trace(7)
         sanitized_7 = sanitized_traces[7 % num_traces]
         swapped_7 = create_swapped_trace(sanitized_7)
         actions = self._convert_to_indigolog_actions(swapped_7, trace_percentage=0.50, include_acquire=True)
+        reversed_actions = list(reversed(actions))
         samples.append({
             'task_type': 'conformance',
             'sample_id': 8,
-            'actions': ';'.join(actions) if actions else '',
+            'actions': ', '.join(reversed_actions) if reversed_actions else '',
             'expected_result': False,
             'model_name': model_name,
             'description': 'conformance_large_false'

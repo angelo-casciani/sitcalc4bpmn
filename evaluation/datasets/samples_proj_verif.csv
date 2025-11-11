@@ -24,9 +24,9 @@ sample_id,model_name,task_type,actions,property,expected_result
 23,process_5.bpmn,projection,"expense_report_received(1),notify_employee(1),check_new_account(start,1),check_new_account(end,1,account_already_existing),review_amount(start,1),review_amount(end,1,amount_smaller_1000),expense_report_approved_without_assessment(1)",done(reimbursement_cancelled(1)),False
 24,process_5.bpmn,verification,,"reimbursement_cancelled(id),done(assess_evaluation_report(start,id))",False
 25,process_6.bpmn,projection,"pallet_arrived(1),check_quality_parameters(start,1),check_quality_parameters(end,1)",firmness(1),True
-26,process_6.bpmn,verification,,"neg(done(pallet_discarded(id))),done(analyse_sample(start,id))",True
+26,process_6.bpmn,verification,,"color(id),done(check_quality_parameters(end,id))",True
 27,process_6.bpmn,projection,"pallet_arrived(1),check_quality_parameters(start,1),check_quality_parameters(end,1)",product_info(1),False
-28,process_6.bpmn,verification,,"done(pallet_discarded(id)),done(analyse_sample(start,id))",False
+28,process_6.bpmn,verification,,"done(pallet_discarded(id)),done(container_shipped(id))",False
 29,process_7.bpmn,projection,"new_client_acquired(1),request_personal_data(start,1),request_personal_data(end,1)",personal_data(1),True
 30,process_7.bpmn,verification,,"neg(interruption_completed(id)),sim_card(id)",True
 31,process_7.bpmn,projection,"new_client_acquired(1),request_personal_data(start,1),request_personal_data(end,1),check_correctness_of_personal_data(start,1),check_correctness_of_personal_data(end,1),ask_portability(start,1),ask_portability(end,1,false),assign_new_number(start,1),assign_new_number(end,1),sign_contract(start,1),sign_contract(end,1),store_data(start,1),store_data(end,1),request_payment(start,1),request_payment(end,1),send_sim_card(start,1),send_sim_card(end,1)",sim_card(1),False

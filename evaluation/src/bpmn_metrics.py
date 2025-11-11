@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import re
 import sys
+import os
 
 
 @dataclass
@@ -392,25 +393,266 @@ def extract_bpmn_metrics(bpmn_file_path: str) -> BPMNMetrics:
     return extractor.extract_metrics()
 
 
+def compute_metrics_for_dataset(dataset_dir: str, output_file: str, dataset_name: str):
+    """Compute BPMN metrics for all .bpmn files in a directory.
+    
+    Args:
+        dataset_dir: Directory containing BPMN files
+        output_file: Path to output CSV file
+        dataset_name: Name of the dataset for logging
+    """
+    import csv
+    
+    print(f"\n{'='*70}")
+    print(f"Computing BPMN metrics for: {dataset_name}")
+    print(f"Dataset directory: {dataset_dir}")
+    print(f"{'='*70}")
+    
+    if not os.path.exists(dataset_dir):
+        print(f"Error: Dataset directory not found: {dataset_dir}")
+        return
+    
+    # Find all BPMN files
+    bpmn_files = sorted([f for f in os.listdir(dataset_dir) if f.endswith('.bpmn')])
+    
+    if not bpmn_files:
+        print(f"Warning: No BPMN files found in {dataset_dir}")
+        return
+    
+    print(f"Found {len(bpmn_files)} BPMN files")
+    
+    # Collect metrics for all files
+    all_metrics = []
+    errors = []
+    
+    for i, bpmn_file in enumerate(bpmn_files, 1):
+        bpmn_path = os.path.join(dataset_dir, bpmn_file)
+        print(f"  [{i}/{len(bpmn_files)}] Processing: {bpmn_file}...", end=' ')
+        
+        try:
+            metrics = extract_bpmn_metrics(bpmn_path)
+            metrics_dict = metrics.to_dict()
+            metrics_dict['model_name'] = bpmn_file
+            all_metrics.append(metrics_dict)
+            print("✓")
+        except Exception as e:
+            print(f"✗ Error: {e}")
+            errors.append((bpmn_file, str(e)))
+    
+    # Save to CSV
+    if all_metrics:
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Define fieldnames (model_name first, then metrics)
+        fieldnames = ['model_name', 'num_tasks', 'num_exclusive_gateways', 
+                     'num_parallel_gateways', 'num_events', 'num_pools', 
+                     'num_subprocesses', 'num_data_objects', 'total_elements']
+        
+        with open(output_file, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(all_metrics)
+        
+        print(f"\n✓ Metrics saved to: {output_file}")
+        print(f"  Successfully processed: {len(all_metrics)} models")
+        
+        if errors:
+            print(f"  Failed to process: {len(errors)} models")
+            for bpmn_file, error in errors:
+                print(f"    - {bpmn_file}: {error}")
+        
+        # Generate summary
+        generate_bpmn_metrics_summary(all_metrics, output_file, dataset_name)
+    else:
+        print("\nNo metrics collected")
+
+
+def generate_bpmn_metrics_summary(metrics_list: list, csv_path: str, dataset_name: str):
+    """Generate summary statistics for BPMN metrics.
+    
+    Args:
+        metrics_list: List of metrics dictionaries
+        csv_path: Path to the CSV file (used to determine output path)
+        dataset_name: Name of the dataset for the report
+    """
+    import statistics
+    from datetime import datetime
+    
+    if not metrics_list:
+        return
+    
+    num_models = len(metrics_list)
+    
+    # Calculate statistics for each metric
+    num_tasks_list = [m['num_tasks'] for m in metrics_list]
+    num_exc_gw_list = [m['num_exclusive_gateways'] for m in metrics_list]
+    num_par_gw_list = [m['num_parallel_gateways'] for m in metrics_list]
+    num_events_list = [m['num_events'] for m in metrics_list]
+    num_pools_list = [m['num_pools'] for m in metrics_list]
+    num_subproc_list = [m['num_subprocesses'] for m in metrics_list]
+    num_data_obj_list = [m['num_data_objects'] for m in metrics_list]
+    total_elem_list = [m['total_elements'] for m in metrics_list]
+    
+    # Generate summary
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    summary = f"""
+{'='*80}
+BPMN STRUCTURAL METRICS SUMMARY - {dataset_name}
+{'='*80}
+
+Generated: {timestamp}
+Dataset: {dataset_name}
+Source File: {os.path.basename(csv_path)}
+
+{'='*80}
+DATASET OVERVIEW
+{'='*80}
+
+Total Models Analyzed: {num_models}
+Total Tasks:           {sum(num_tasks_list)}
+Total Gateways:        {sum(num_exc_gw_list) + sum(num_par_gw_list)}
+Total Events:          {sum(num_events_list)}
+Total Elements:        {sum(total_elem_list)}
+
+{'='*80}
+TASKS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_tasks_list):.1f} tasks/model
+Median:         {statistics.median(num_tasks_list):.1f} tasks/model
+Minimum:        {min(num_tasks_list)} tasks/model
+Maximum:        {max(num_tasks_list)} tasks/model
+
+{'='*80}
+EXCLUSIVE GATEWAYS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_exc_gw_list):.1f} gateways/model
+Median:         {statistics.median(num_exc_gw_list):.1f} gateways/model
+Minimum:        {min(num_exc_gw_list)} gateways/model
+Maximum:        {max(num_exc_gw_list)} gateways/model
+
+{'='*80}
+PARALLEL GATEWAYS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_par_gw_list):.1f} gateways/model
+Median:         {statistics.median(num_par_gw_list):.1f} gateways/model
+Minimum:        {min(num_par_gw_list)} gateways/model
+Maximum:        {max(num_par_gw_list)} gateways/model
+
+{'='*80}
+EVENTS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_events_list):.1f} events/model
+Median:         {statistics.median(num_events_list):.1f} events/model
+Minimum:        {min(num_events_list)} events/model
+Maximum:        {max(num_events_list)} events/model
+
+{'='*80}
+TOTAL ELEMENTS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(total_elem_list):.1f} elements/model
+Median:         {statistics.median(total_elem_list):.1f} elements/model
+Minimum:        {min(total_elem_list)} elements/model
+Maximum:        {max(total_elem_list)} elements/model
+
+{'='*80}
+TOP 5 MOST COMPLEX MODELS (by total elements)
+{'='*80}
+
+"""
+    
+    sorted_by_complexity = sorted(metrics_list, key=lambda x: x['total_elements'], reverse=True)[:5]
+    for i, m in enumerate(sorted_by_complexity, 1):
+        summary += f"{i}. {m['model_name']}: {m['total_elements']} elements "
+        summary += f"(tasks={m['num_tasks']}, gateways={m['num_exclusive_gateways']+m['num_parallel_gateways']}, events={m['num_events']})\n"
+    
+    summary += f"""
+{'='*80}
+TOP 5 MODELS WITH MOST TASKS
+{'='*80}
+
+"""
+    
+    sorted_by_tasks = sorted(metrics_list, key=lambda x: x['num_tasks'], reverse=True)[:5]
+    for i, m in enumerate(sorted_by_tasks, 1):
+        summary += f"{i}. {m['model_name']}: {m['num_tasks']} tasks\n"
+    
+    summary += f"""
+{'='*80}
+END OF SUMMARY
+{'='*80}
+"""
+    
+    # Write summary to file
+    summary_path = csv_path.replace('.csv', '_summary.txt')
+    with open(summary_path, 'w') as f:
+        f.write(summary)
+    
+    print(f"  Summary saved to: {summary_path}")
+
+
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("Usage: python bpmn_metrics.py <bpmn_file_path>")
-        sys.exit(1)
+    import argparse
     
-    bpmn_file = sys.argv[1]
-    metrics = extract_bpmn_metrics(bpmn_file)
+    parser = argparse.ArgumentParser(description='Extract BPMN metrics from files')
+    parser.add_argument('--file', type=str, help='Single BPMN file to analyze')
+    parser.add_argument('--compute-all', action='store_true', 
+                       help='Compute metrics for all datasets')
     
-    print(f"\nBPMN Metrics for: {bpmn_file}")
-    print("=" * 70)
-    print(f"Tasks:                {metrics.num_tasks}")
-    print(f"Exclusive Gateways:   {metrics.num_exclusive_gateways}")
-    print(f"Parallel Gateways:    {metrics.num_parallel_gateways}")
-    print(f"Events:               {metrics.num_events}")
-    print(f"Pools:                {metrics.num_pools}")
-    print(f"Subprocesses:         {metrics.num_subprocesses}")
-    print(f"Data Objects:         {metrics.num_data_objects}")
-    print(f"Total Elements:       {metrics.total_elements()}")
-    print("\nTask Names:", metrics.task_names[:5], "..." if len(metrics.task_names) > 5 else "")
-    print("Gateway Conditions:", metrics.gateway_conditions[:3], "..." if len(metrics.gateway_conditions) > 3 else "")
-    print("Data Objects:", metrics.data_objects[:3], "..." if len(metrics.data_objects) > 3 else "")
-    print("=" * 70)
+    args = parser.parse_args()
+    
+    if args.compute_all:
+        # Compute metrics for both datasets
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
+        
+        datasets = [
+            {
+                'name': 'Processed Dataset (Legality & Conformance)',
+                'dir': os.path.join(project_root, 'bpmn', 'dataset', 'processed'),
+                'output': os.path.join(project_root, 'evaluation', 'bpmn_metrics', 'bpmn_metrics_processed.csv')
+            },
+            {
+                'name': 'Exams BPMN (Projection & Verification)',
+                'dir': os.path.join(project_root, 'bpmn', 'exams-bpmn'),
+                'output': os.path.join(project_root, 'evaluation', 'bpmn_metrics', 'bpmn_metrics_exams.csv')
+            }
+        ]
+        
+        for dataset in datasets:
+            compute_metrics_for_dataset(
+                dataset_dir=dataset['dir'],
+                output_file=dataset['output'],
+                dataset_name=dataset['name']
+            )
+        
+        print(f"\n{'='*70}")
+        print("BPMN metrics computation completed!")
+        print(f"{'='*70}\n")
+    
+    elif args.file:
+        # Single file analysis
+        metrics = extract_bpmn_metrics(args.file)
+        
+        print(f"\nBPMN Metrics for: {args.file}")
+        print("=" * 70)
+        print(f"Tasks:                {metrics.num_tasks}")
+        print(f"Exclusive Gateways:   {metrics.num_exclusive_gateways}")
+        print(f"Parallel Gateways:    {metrics.num_parallel_gateways}")
+        print(f"Events:               {metrics.num_events}")
+        print(f"Pools:                {metrics.num_pools}")
+        print(f"Subprocesses:         {metrics.num_subprocesses}")
+        print(f"Data Objects:         {metrics.num_data_objects}")
+        print(f"Total Elements:       {metrics.total_elements()}")
+        print("\nTask Names:", metrics.task_names[:5], "..." if len(metrics.task_names) > 5 else "")
+        print("Gateway Conditions:", metrics.gateway_conditions[:3], "..." if len(metrics.gateway_conditions) > 3 else "")
+        print("Data Objects:", metrics.data_objects[:3], "..." if len(metrics.data_objects) > 3 else "")
+        print("=" * 70)
+    
+    else:
+        parser.print_help()

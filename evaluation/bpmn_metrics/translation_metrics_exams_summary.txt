@@ -1,0 +1,98 @@
+
+================================================================================
+TRANSLATION METRICS SUMMARY - Projection & Verification (Exams BPMN)
+================================================================================
+
+Generated: 2025-11-11 15:27:41
+Dataset: Projection & Verification (Exams BPMN)
+Source File: translation_metrics_exams.csv
+
+================================================================================
+DATASET OVERVIEW
+================================================================================
+
+Total Models Translated: 10
+Total Actions Generated: 257
+Total Fluents Generated: 96
+
+================================================================================
+TRANSLATION TIME STATISTICS (seconds)
+================================================================================
+
+Average:        0.005197 sec
+Median:         0.004931 sec
+Std Deviation:  0.001206 sec
+Minimum:        0.003463 sec (process_8.bpmn)
+Maximum:        0.007187 sec (process_5.bpmn)
+
+================================================================================
+ACTIONS STATISTICS (prim_action declarations)
+================================================================================
+
+Total Actions:  257
+Average:        25.7 actions/model
+Median:         26.0 actions/model
+Minimum:        16 actions/model
+Maximum:        37 actions/model (process_7.bpmn)
+
+================================================================================
+FLUENTS STATISTICS (rel_fluent + fun_fluent declarations)
+================================================================================
+
+Total Fluents:  96
+Average:        9.6 fluents/model
+Median:         9.0 fluents/model
+Minimum:        7 fluents/model
+Maximum:        13 fluents/model (process_3.bpmn)
+
+================================================================================
+PROGRAM SIZE STATISTICS (lines of Prolog code)
+================================================================================
+
+Average:        318.1 lines/model
+Median:         308.0 lines/model
+Minimum:        266 lines (process_8.bpmn)
+Maximum:        413 lines (process_1.bpmn)
+
+================================================================================
+TOP 5 MODELS BY TRANSLATION TIME
+================================================================================
+
+1. process_5.bpmn: 0.007187 sec (actions=29, fluents=7, lines=384)
+2. process_1.bpmn: 0.006530 sec (actions=27, fluents=10, lines=413)
+3. process_3.bpmn: 0.006375 sec (actions=34, fluents=13, lines=368)
+4. process_2.bpmn: 0.005595 sec (actions=16, fluents=10, lines=267)
+5. process_6.bpmn: 0.005230 sec (actions=19, fluents=13, lines=271)
+
+================================================================================
+TOP 5 MODELS BY COMPLEXITY (actions + fluents)
+================================================================================
+
+1. process_3.bpmn: 47 total elements (actions=34, fluents=13)
+2. process_7.bpmn: 45 total elements (actions=37, fluents=8)
+3. process_1.bpmn: 37 total elements (actions=27, fluents=10)
+4. process_4.bpmn: 36 total elements (actions=25, fluents=11)
+5. process_5.bpmn: 36 total elements (actions=29, fluents=7)
+
+================================================================================
+TOP 5 LARGEST PROGRAMS (by lines of code)
+================================================================================
+
+1. process_1.bpmn: 413 lines (actions=27, fluents=10)
+2. process_5.bpmn: 384 lines (actions=29, fluents=7)
+3. process_3.bpmn: 368 lines (actions=34, fluents=13)
+4. process_7.bpmn: 311 lines (actions=37, fluents=8)
+5. process_9.bpmn: 309 lines (actions=27, fluents=8)
+
+================================================================================
+CORRELATION ANALYSIS
+================================================================================
+
+Translation Time vs Actions:      +0.247
+Translation Time vs Fluents:      +0.171
+Translation Time vs Program Size: +0.777
+Actions vs Fluents:               -0.111
+
+================================================================================
+END OF SUMMARY
+================================================================================

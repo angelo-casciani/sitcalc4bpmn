@@ -13,7 +13,7 @@ sys.path.insert(0, main_src_dir)
 from metrics_collector import MetricsCollector, ReasoningMetrics
 from translator_service import TranslatorService
 from reasoning_service import ReasoningService
-from bpmn_metrics import extract_bpmn_metrics
+from chart_generator import ChartGenerator
 
 
 class BPMNEvaluator:
@@ -21,7 +21,6 @@ class BPMNEvaluator:
         self.dataset_dir = dataset_dir
         self.output_dir = output_dir
         self.results = []
-        self.bpmn_metrics = []  # Store BPMN model metrics
         self.translation_metrics = []  # Store translation metrics
         self.current_datetime_str = None  # Store timestamp for file naming
         self.resume_csv = resume_csv  # Path to CSV file for resuming
@@ -288,15 +287,6 @@ class BPMNEvaluator:
             print(f"  Error: BPMN file not found: {bpmn_file}")
             return
         
-        # Extract BPMN metrics
-        try:
-            metrics = extract_bpmn_metrics(bpmn_file)
-            metrics_dict = metrics.to_dict()
-            metrics_dict['model_name'] = model_name
-            self.bpmn_metrics.append(metrics_dict)
-        except Exception as e:
-            print(f"  Warning: Could not extract BPMN metrics: {e}")
-        
         model_id = self.translate_bpmn_model(bpmn_file, model_name)
         if not model_id:
             print(f"  Error: Translation failed for {model_name}")
@@ -438,15 +428,6 @@ class BPMNEvaluator:
             print(f"  Error: BPMN file not found: {bpmn_file}")
             return
         
-        # Extract BPMN metrics
-        try:
-            metrics = extract_bpmn_metrics(bpmn_file)
-            metrics_dict = metrics.to_dict()
-            metrics_dict['model_name'] = model_name
-            self.bpmn_metrics.append(metrics_dict)
-        except Exception as e:
-            print(f"  Warning: Could not extract BPMN metrics: {e}")
-        
         model_id = self.translate_bpmn_model(bpmn_file, model_name)
         if not model_id:
             print(f"  Error: Translation failed for {model_name}")
@@ -535,26 +516,14 @@ class BPMNEvaluator:
         print(f"\n  Model Accuracy: {correct}/{total} ({accuracy:.1f}%)")
     
     def save_results(self, suffix=''):
-        """Save BPMN metrics, translation metrics, and finalize results file.
+        """Save translation metrics and finalize results file.
         
         Note: Individual results are already saved incrementally during evaluation.
-        This method primarily handles BPMN and translation metrics saving and final reporting.
+        This method primarily handles translation metrics saving and final reporting.
         """
         # Results file path is already set
         output_file = self.current_results_file
         print(f"\nResults saved to: {output_file}")
-        
-        # Save BPMN metrics
-        if self.bpmn_metrics:
-            metrics_filename = f'bpmn_metrics{suffix}.csv'
-            metrics_output_file = os.path.join(self.output_dir, 'bpmn_metrics', metrics_filename)
-            with open(metrics_output_file, 'w', newline='') as f:
-                fieldnames = ['model_name'] + [k for k in self.bpmn_metrics[0].keys() if k != 'model_name']
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                writer.writeheader()
-                writer.writerows(self.bpmn_metrics)
-            
-            print(f"BPMN metrics saved to: {metrics_output_file}")
         
         # Save translation metrics
         if self.translation_metrics:
@@ -584,6 +553,8 @@ class BPMNEvaluator:
             for row in reader:
                 results.append({
                     'task_type': row['task_type'],
+                    'expected': row['expected'].lower() == 'true',
+                    'returned': row['returned'].lower() == 'true',
                     'correct': row['correct'].lower() == 'true',
                     'reasoning_time': float(row['reasoning_time']),
                     'inferences': int(row['inferences'])
@@ -593,9 +564,28 @@ class BPMNEvaluator:
             print("\nNo results to summarize.")
             return
         
+        # Helper function to calculate precision, recall, F1
+        def calculate_metrics(results_subset):
+            """Calculate TP, FP, TN, FN, precision, recall, F1-score."""
+            tp = sum(1 for r in results_subset if r['expected'] and r['returned'])  # True Positive
+            fp = sum(1 for r in results_subset if not r['expected'] and r['returned'])  # False Positive
+            tn = sum(1 for r in results_subset if not r['expected'] and not r['returned'])  # True Negative
+            fn = sum(1 for r in results_subset if r['expected'] and not r['returned'])  # False Negative
+            
+            precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+            accuracy = (tp + tn) / len(results_subset) if len(results_subset) > 0 else 0.0
+            
+            return {
+                'tp': tp, 'fp': fp, 'tn': tn, 'fn': fn,
+                'precision': precision, 'recall': recall, 'f1': f1_score, 'accuracy': accuracy
+            }
+        
+        # Calculate overall metrics
+        overall_metrics = calculate_metrics(results)
         total = len(results)
         correct = sum(1 for r in results if r['correct'])
-        accuracy = (correct / total * 100) if total > 0 else 0
         
         # Compute averages
         avg_time = sum(r['reasoning_time'] for r in results) / total
@@ -607,15 +597,11 @@ class BPMNEvaluator:
         projection_results = [r for r in results if r['task_type'] == 'projection']
         verification_results = [r for r in results if r['task_type'] == 'verification']
         
-        legality_correct = sum(1 for r in legality_results if r['correct'])
-        conformance_correct = sum(1 for r in conformance_results if r['correct'])
-        projection_correct = sum(1 for r in projection_results if r['correct'])
-        verification_correct = sum(1 for r in verification_results if r['correct'])
-        
-        legality_acc = (legality_correct / len(legality_results) * 100) if legality_results else 0
-        conformance_acc = (conformance_correct / len(conformance_results) * 100) if conformance_results else 0
-        projection_acc = (projection_correct / len(projection_results) * 100) if projection_results else 0
-        verification_acc = (verification_correct / len(verification_results) * 100) if verification_results else 0
+        # Calculate per-task metrics
+        legality_metrics = calculate_metrics(legality_results) if legality_results else None
+        conformance_metrics = calculate_metrics(conformance_results) if conformance_results else None
+        projection_metrics = calculate_metrics(projection_results) if projection_results else None
+        verification_metrics = calculate_metrics(verification_results) if verification_results else None
         
         # Compute per-task averages
         legality_time = sum(r['reasoning_time'] for r in legality_results) / len(legality_results) if legality_results else 0
@@ -635,22 +621,35 @@ class BPMNEvaluator:
         summary_lines.append("=" * 70)
         summary_lines.append(f"Total samples: {total}")
         summary_lines.append(f"Correct: {correct}")
-        summary_lines.append(f"Overall Accuracy: {accuracy:.1f}%")
-        summary_lines.append(f"Average Reasoning Time: {avg_time:.3f} seconds")
-        summary_lines.append(f"Average Inferences: {avg_inferences:.0f}")
         summary_lines.append("")
+        summary_lines.append("OVERALL METRICS:")
+        summary_lines.append(f"  Accuracy:  {overall_metrics['accuracy']*100:.1f}%")
+        summary_lines.append(f"  Precision: {overall_metrics['precision']*100:.1f}%")
+        summary_lines.append(f"  Recall:    {overall_metrics['recall']*100:.1f}%")
+        summary_lines.append(f"  F1-Score:  {overall_metrics['f1']*100:.1f}%")
+        summary_lines.append(f"  Average Reasoning Time: {avg_time:.3f} seconds")
+        summary_lines.append(f"  Average Inferences: {avg_inferences:.0f}")
+        summary_lines.append("")
+        summary_lines.append("PER-TASK BREAKDOWN:")
         
-        if legality_results:
-            summary_lines.append(f"Legality: {legality_correct}/{len(legality_results)} ({legality_acc:.1f}%)")
+        if legality_metrics:
+            summary_lines.append(f"Legality: {legality_metrics['tp'] + legality_metrics['tn']}/{len(legality_results)} correct ({legality_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"  Precision: {legality_metrics['precision']*100:.1f}%, Recall: {legality_metrics['recall']*100:.1f}%, F1: {legality_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {legality_time:.3f}s, Avg Inferences: {legality_inf:.0f}")
-        if conformance_results:
-            summary_lines.append(f"Conformance: {conformance_correct}/{len(conformance_results)} ({conformance_acc:.1f}%)")
+        
+        if conformance_metrics:
+            summary_lines.append(f"Conformance: {conformance_metrics['tp'] + conformance_metrics['tn']}/{len(conformance_results)} correct ({conformance_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"  Precision: {conformance_metrics['precision']*100:.1f}%, Recall: {conformance_metrics['recall']*100:.1f}%, F1: {conformance_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {conformance_time:.3f}s, Avg Inferences: {conformance_inf:.0f}")
-        if projection_results:
-            summary_lines.append(f"Projection: {projection_correct}/{len(projection_results)} ({projection_acc:.1f}%)")
+        
+        if projection_metrics:
+            summary_lines.append(f"Projection: {projection_metrics['tp'] + projection_metrics['tn']}/{len(projection_results)} correct ({projection_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"  Precision: {projection_metrics['precision']*100:.1f}%, Recall: {projection_metrics['recall']*100:.1f}%, F1: {projection_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {projection_time:.3f}s, Avg Inferences: {projection_inf:.0f}")
-        if verification_results:
-            summary_lines.append(f"Property Verification: {verification_correct}/{len(verification_results)} ({verification_acc:.1f}%)")
+        
+        if verification_metrics:
+            summary_lines.append(f"Property Verification: {verification_metrics['tp'] + verification_metrics['tn']}/{len(verification_results)} correct ({verification_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"  Precision: {verification_metrics['precision']*100:.1f}%, Recall: {verification_metrics['recall']*100:.1f}%, F1: {verification_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {verification_time:.3f}s, Avg Inferences: {verification_inf:.0f}")
         
         summary_lines.append("=" * 70)
@@ -688,7 +687,20 @@ class BPMNEvaluator:
             # Use current timestamp if we can't extract it
             self.current_datetime_str = datetime.datetime.now().strftime('%Y-%m-%d_%H:%M:%S')
         
+        # Generate summary report
         self.generate_summary_from_csv(csv_file_path, suffix)
+        
+        # Generate charts
+        print("\n" + "="*70)
+        print("GENERATING CHARTS")
+        print("="*70)
+        try:
+            chart_gen = ChartGenerator(csv_file_path, self.output_dir)
+            chart_gen.generate_all_charts()
+        except Exception as e:
+            print(f"Error generating charts: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 if __name__ == '__main__':

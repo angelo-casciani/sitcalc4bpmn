@@ -1,0 +1,87 @@
+
+================================================================================
+BPMN STRUCTURAL METRICS SUMMARY - Exams BPMN (Projection & Verification)
+================================================================================
+
+Generated: 2025-11-11 15:27:25
+Dataset: Exams BPMN (Projection & Verification)
+Source File: bpmn_metrics_exams.csv
+
+================================================================================
+DATASET OVERVIEW
+================================================================================
+
+Total Models Analyzed: 10
+Total Tasks:           120
+Total Gateways:        64
+Total Events:          190
+Total Elements:        407
+
+================================================================================
+TASKS STATISTICS
+================================================================================
+
+Average:        12.0 tasks/model
+Median:         11.0 tasks/model
+Minimum:        10 tasks/model
+Maximum:        17 tasks/model
+
+================================================================================
+EXCLUSIVE GATEWAYS STATISTICS
+================================================================================
+
+Average:        4.7 gateways/model
+Median:         5.0 gateways/model
+Minimum:        3 gateways/model
+Maximum:        7 gateways/model
+
+================================================================================
+PARALLEL GATEWAYS STATISTICS
+================================================================================
+
+Average:        1.7 gateways/model
+Median:         2.0 gateways/model
+Minimum:        0 gateways/model
+Maximum:        4 gateways/model
+
+================================================================================
+EVENTS STATISTICS
+================================================================================
+
+Average:        19.0 events/model
+Median:         21.5 events/model
+Minimum:        2 events/model
+Maximum:        31 events/model
+
+================================================================================
+TOTAL ELEMENTS STATISTICS
+================================================================================
+
+Average:        40.7 elements/model
+Median:         40.0 elements/model
+Minimum:        20 elements/model
+Maximum:        57 elements/model
+
+================================================================================
+TOP 5 MOST COMPLEX MODELS (by total elements)
+================================================================================
+
+1. process_3.bpmn: 57 elements (tasks=15, gateways=9, events=29)
+2. process_7.bpmn: 56 elements (tasks=17, gateways=5, events=31)
+3. process_5.bpmn: 50 elements (tasks=10, gateways=7, events=28)
+4. process_1.bpmn: 48 elements (tasks=10, gateways=7, events=25)
+5. process_9.bpmn: 41 elements (tasks=12, gateways=5, events=21)
+
+================================================================================
+TOP 5 MODELS WITH MOST TASKS
+================================================================================
+
+1. process_7.bpmn: 17 tasks
+2. process_3.bpmn: 15 tasks
+3. process_6.bpmn: 14 tasks
+4. process_2.bpmn: 12 tasks
+5. process_9.bpmn: 12 tasks
+
+================================================================================
+END OF SUMMARY
+================================================================================

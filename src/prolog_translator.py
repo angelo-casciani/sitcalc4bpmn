@@ -16,11 +16,8 @@ SUBPROCESS = 'subProcess'
 class PrologTranslator:
     def __init__(self, parser):
         self.parser = parser
-        # Track loop-controlling fluents: {fluent_name: loop_continuing_value}
         self.loop_fluents = {}
-        # Track ALL gateway fluents: {fluent_name: default_value}
         self.gateway_fluents = {}
-        # Track functional (non-boolean) gateway fluents
         self.functional_fluents = set()
 
     def _prologify(self, name):

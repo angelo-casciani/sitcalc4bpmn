@@ -5,21 +5,9 @@ import argparse
 import sys
 import time
 
-# Set higher recursion depth for complex models
-sys.setrecursionlimit(5000)
+sys.setrecursionlimit(5000)  # Set higher recursion depth for complex models
 
 class SimpleBPMNSimulator:
-    """
-    A stateful, token-based BPMN simulator that generates all trace variants.
-    Tokens are on the SEQUENCE FLOWS.
-    
-    Handles:
-    - Sequence Flows
-    - Exclusive Gateways (XOR)
-    - Parallel Gateways (AND)
-    - Simple Loops (with loop limit)
-    """
-    
     def __init__(self, bpmn_content: str):
         self.root = ET.fromstring(bpmn_content)
         self.ns = {'bpmn': 'http://www.omg.org/spec/BPMN/20100524/MODEL'}
@@ -39,8 +27,6 @@ class SimpleBPMNSimulator:
         self._identify_xor_branches()
 
     def _parse_bpmn(self):
-        """Parse all relevant BPMN elements into simple lookups."""
-        
         all_element_types = [
             'task', 'userTask', 'serviceTask', 'manualTask', 'scriptTask', 
             'sendTask', 'receiveTask', 'exclusiveGateway', 'parallelGateway', 
@@ -79,9 +65,6 @@ class SimpleBPMNSimulator:
             self.incoming_flows[target].append(flow_id)
 
     def _determine_gateway_directions(self):
-        """
-        Correctly determine gateway direction based on flow counts.
-        """
         for elem_id, (elem_type, _) in self.elements.items():
             if 'Gateway' in elem_type:
                 incoming = len(self.incoming_flows.get(elem_id, []))
@@ -97,10 +80,6 @@ class SimpleBPMNSimulator:
                     self.gateway_directions[elem_id] = 'Unspecified'
     
     def _identify_xor_branches(self):
-        """
-        Identify exclusive gateways and map their outgoing flows to branch conditions.
-        Also identify which activities feed into diverging XOR gateways.
-        """
         # Map: activity_elem_id -> list of (flow_id, condition_value) for XOR branches
         self.activity_to_xor_branches = {}
         
@@ -131,7 +110,6 @@ class SimpleBPMNSimulator:
                             self.activity_to_xor_branches[source_elem_id].extend(branches)
     
     def _extract_branch_value(self, flow_name: str) -> str:
-        """Extract the branch value from a flow name (e.g., 'yes', 'no')."""
         if not flow_name:
             return ''
         # Common patterns: "yes", "no", "> C", "< C", etc.
@@ -147,7 +125,6 @@ class SimpleBPMNSimulator:
         return flow_name.strip()
 
     def _get_element_name(self, elem_id: str) -> str:
-        """Helper to get a display name for an element."""
         if elem_id in self.elements:
             elem_type, elem_name = self.elements[elem_id]
             
@@ -163,11 +140,6 @@ class SimpleBPMNSimulator:
         return None
     
     def _get_element_info(self, elem_id: str) -> tuple:
-        """Get both name and type for an element.
-        
-        Returns:
-            tuple: (name, type) or (None, None) if element should not be in trace
-        """
         if elem_id in self.elements:
             elem_type, elem_name = self.elements[elem_id]
             
@@ -182,13 +154,6 @@ class SimpleBPMNSimulator:
         return (None, None)
 
     def generate_traces_with_types(self, max_loops: int = 1, max_traces: int = 100, timeout: int = 5) -> List[List[Tuple]]:
-        """
-        Generates execution traces with element type and XOR branch information.
-        
-        Returns:
-            A list of traces, where each trace is a list of tuples:
-            (activity_name, element_type, xor_value_or_none)
-        """
         # First generate the simple traces
         simple_traces = self.generate_traces(max_loops, max_traces, timeout)
         
@@ -470,14 +435,13 @@ class SimpleBPMNSimulator:
         if not has_fired:
             queue.append((trace, tokens, visited))
 
-# Example usage
+
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Generate execution traces from BPMN models')
     parser.add_argument('--bpmn_file', type=str, required=True, help='Path to the BPMN file')
     parser.add_argument('--max_loops', type=int, default=1, help='Maximum loop iterations (e.g., 0=no loops, 1=run loop once)')
     parser.add_argument('--timeout', type=int, default=5, help='Timeout in seconds for trace generation')
-    
     args = parser.parse_args()
     
     try:
@@ -491,10 +455,7 @@ if __name__ == "__main__":
         sys.exit(1)
     
     simulator = SimpleBPMNSimulator(bpmn_content)
-    
     print(f"Simulating '{args.bpmn_file}' with max_loops={args.max_loops}...\n")
-    
-    # Generate traces
     traces = simulator.generate_traces(max_loops=args.max_loops, timeout=args.timeout)
     
     print(f"\n{'='*60}")
@@ -504,9 +465,7 @@ if __name__ == "__main__":
     if not traces:
         print("No traces were generated. Check model or loop settings.")
     
-    # Sort traces for consistent output
     sorted_traces = sorted(list(traces), key=lambda t: (len(t), t))
-    
     for i, trace in enumerate(sorted_traces, 1):
         print(f"{i}. {' -> '.join(trace)}")
 

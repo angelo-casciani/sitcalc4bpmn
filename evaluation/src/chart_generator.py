@@ -284,9 +284,7 @@ def main():
         generator.generate_all_charts()
         print()
     
-    # Generate translation time charts (once, independent of CSV files)
-    if csv_files:
-        # Use the first CSV file just to initialize the generator
+    if csv_files: # Generate translation time charts
         csv_path = os.path.join(results_dir, csv_files[0]) if not os.path.isabs(csv_files[0]) else csv_files[0]
         generator = ChartGenerator(csv_path, output_dir)
         generator.generate_translation_time_charts()

@@ -10,58 +10,29 @@ The framework evaluates BPMN models across four reasoning tasks:
 - **Projection**: Determining fluent truth values after action sequences
 - **Property Verification**: Checking properties over complete executions
 
-## Components
+## Evaluation Directory Structure
 
-### 1. BPMN Metrics Computation (`bpmn_metrics.py`)
-Extracts and computes structural metrics for all BPMN models in both datasets:
-- Parses BPMN XML files to extract structural elements
-- Computes metrics: #tasks, #exclusive gateways, #parallel gateways, #events, #pools, #subprocesses, #data objects
-- Generates CSV files: `bpmn_metrics/bpmn_metrics_processed.csv` and `bpmn_metrics/bpmn_metrics_exams.csv`
-- **Automatically generates summary statistics** for each dataset
-- Run independently before evaluation to avoid redundant computation
-
-### 2. Translation Metrics Generation (`generate_translation_metrics.py`)
-Translates all BPMN models and collects translation performance metrics:
-- Translates models from `bpmn/dataset/processed/` → `bpmn_metrics/translation_metrics_leg_conf.csv`
-- Translates models from `bpmn/exams-bpmn/` → `bpmn_metrics/translation_metrics_exams.csv`
-- Correctly counts `prim_action`, `rel_fluent`, and `fun_fluent` declarations
-- **Automatically generates summary statistics** including correlations and top models
-- Independent of evaluation runs (can be executed separately)
-
-### 3. BPMN Metrics Extractor (`bpmn_metrics.py`)
-Core module for parsing BPMN XML files (used by metric computation):
-- Extracts structural metrics and elements
-- Supports single file analysis or batch processing
-- Can be imported as a module or run as a standalone script
-
-### 4. Sample Generator (`sample_generator.py`)
-Generates test samples for legality and conformance tasks:
-- **8 samples per model** (4 legality + 4 conformance)
-  - 2 small (25% of trace) + 2 large (50% of trace) per task
-  - 1 true + 1 false for each size category
-- Outputs: `datasets/samples_leg_conf.csv`
-
-### 5. Trace Generator (`trace_generator.py`)
-Simulates BPMN execution to generate valid process traces with element types and gateway values.
-
-### 6. Metrics Collector (`metrics_collector.py`)
-Extracts performance metrics from Prolog output:
-- Reasoning time, inferences, success/failure status
-
-### 7. Main Evaluation Script (`evaluate.py`)
-Orchestrates the evaluation process with two modes:
-- **Test mode**: Run evaluations and collect results
-- **Assess mode**: Generate summaries and charts from existing CSV files
-- **Note**: No longer computes BPMN metrics during evaluation (uses pre-computed metrics)
-
-### 8. Chart Generator (`chart_generator.py`)
-Automatically generates line charts from evaluation results:
-- **Accuracy vs Process Model Number**: Percentage of correct predictions per model
-- **Reasoning Time vs Process Model Number**: Average reasoning time per model
-- **Inferences vs Process Model Number**: Average number of inferences per model
-- **Translation Time Charts**: Separate charts for each dataset showing translation performance
-- Each chart displays two lines (one per task type) for evaluation results
-- Charts are automatically generated in assess mode
+```
+evaluation/
+├── datasets/                              # Benchmarks generated from the BPMN datasets
+│   ├── ...
+├── results/                               # Evaluation results
+│   ├── ...
+│   └── charts/                            # Generated charts summarizing the results 
+│       ├── ...
+├── bpmn_metrics/                          # Metrics from the BPMN models
+│   ├── ...
+└── src/
+    ├── bpmn_metrics.py                    # Extracts and computes structural metrics for all BPMN models in both datasets
+    ├── generate_translation_metrics.py    # Translates all BPMN models and collects translation performance metrics
+    ├── evaluate.py                        # Orchestrates the evaluation process
+    ├── chart_generator.py                 # Generates charts from evaluation results
+    ├── sample_generator.py                # Generates test samples for legality and conformance tasks
+    ├── trace_generator.py                 # Simulates BPMN execution to generate valid process traces with element types and gateway values
+    ├── metrics_collector.py               # Extracts performance metrics from Prolog output
+    ├── report_generator.py                # Collects metrics from the generated results
+    └── bpmn_metrics.py                    # Core module for parsing BPMN XML files
+```
 
 ## Usage
 
@@ -169,48 +140,6 @@ python evaluation/src/chart_generator.py
 
 # Generate charts for a specific CSV file
 python evaluation/src/chart_generator.py --csv-file evaluation/results/evaluation_results_proj_verif_2025-11-10_09:44:50.csv
-```
-
-## Output Structure
-
-```
-evaluation/
-├── datasets/
-│   ├── samples_leg_conf.csv          # Legality & conformance samples
-│   └── samples_proj_verif.csv        # Projection & verification samples
-├── results/
-│   ├── evaluation_results_leg_conf_YYYY-MM-DD_HH:MM:SS.csv
-│   ├── evaluation_summary_leg_conf_YYYY-MM-DD_HH:MM:SS.txt
-│   ├── evaluation_results_proj_verif_YYYY-MM-DD_HH:MM:SS.csv
-│   ├── evaluation_summary_proj_verif_YYYY-MM-DD_HH:MM:SS.txt
-│   └── charts/
-│       ├── evaluation_results_leg_conf_YYYY-MM-DD_HH:MM:SS_accuracy.png
-│       ├── evaluation_results_leg_conf_YYYY-MM-DD_HH:MM:SS_reasoning_time.png
-│       ├── evaluation_results_leg_conf_YYYY-MM-DD_HH:MM:SS_inferences.png
-│       ├── evaluation_results_proj_verif_YYYY-MM-DD_HH:MM:SS_accuracy.png
-│       ├── evaluation_results_proj_verif_YYYY-MM-DD_HH:MM:SS_reasoning_time.png
-│       ├── evaluation_results_proj_verif_YYYY-MM-DD_HH:MM:SS_inferences.png
-│       ├── translation_time_leg_conf.png
-│       └── translation_time_proj_verif.png
-├── bpmn_metrics/
-│   ├── bpmn_metrics_processed.csv                     # Structural metrics for processed dataset
-│   ├── bpmn_metrics_processed_summary.txt             # Summary statistics for structural metrics
-│   ├── bpmn_metrics_exams.csv                         # Structural metrics for exams dataset
-│   ├── bpmn_metrics_exams_summary.txt                 # Summary statistics for structural metrics
-│   ├── translation_metrics_leg_conf.csv               # Translation metrics for legality/conformance
-│   ├── translation_metrics_leg_conf_summary.txt       # Summary statistics for translation metrics
-│   ├── translation_metrics_exams.csv                  # Translation metrics for projection/verification
-│   └── translation_metrics_exams_summary.txt          # Summary statistics for translation metrics
-└── src/
-    ├── bpmn_metrics.py
-    ├── generate_translation_metrics.py
-    ├── evaluate.py
-    ├── chart_generator.py
-    ├── sample_generator.py
-    ├── trace_generator.py
-    ├── metrics_collector.py
-    ├── report_generator.py
-    └── bpmn_metrics.py
 ```
 
 ## Metrics Collected
@@ -329,76 +258,6 @@ python evaluation/src/chart_generator.py --csv-file evaluation/results/evaluatio
 - Charts are automatically generated in assess mode for visual analysis of results
 - Process model numbers are extracted from model names (e.g., `process_10.bpmn` → 10) for chart x-axis
 - All metrics are aggregated and averaged per model and task type for chart generation
-
-## Example Output
-
-### Summary Report (excerpt)
-```
-======================================================================
-EVALUATION SUMMARY
-======================================================================
-Total samples: 40
-Correct: 35
-
-OVERALL METRICS:
-  Accuracy:  87.5%
-  Precision: 94.1%
-  Recall:    80.0%
-  F1-Score:  86.5%
-  Average Reasoning Time: 1.476 seconds
-  Average Inferences: 22853908
-
-PER-TASK BREAKDOWN:
-Projection: 19/20 correct (95.0%)
-  Precision: 90.9%, Recall: 100.0%, F1: 95.2%
-  Avg Time: 0.000s, Avg Inferences: 2488
-Property Verification: 16/20 correct (80.0%)
-  Precision: 100.0%, Recall: 60.0%, F1: 75.0%
-  Avg Time: 2.952s, Avg Inferences: 45705327
-======================================================================
-```
-
-### Chart Output
-After running assess mode, three PNG charts are generated in `results/charts/`:
-- **Accuracy chart**: Shows prediction accuracy trends across process models
-- **Reasoning time chart**: Displays performance characteristics across models
-- **Inferences chart**: Illustrates computational complexity patterns
-
-Each chart includes:
-- Two lines (one per task type: e.g., projection and verification)
-- Process model number on x-axis
-- Metric value on y-axis
-- Legend and grid for easy interpretation
-- High-resolution output (300 DPI) suitable for publications
-
-### CSV Output (evaluation_results_leg_conf_*.csv)
-```
-model_name,task_type,sample_id,expected,returned,correct,reasoning_time,inferences
-process_1.bpmn,legality,1,True,True,True,0.234,1523
-process_1.bpmn,legality,2,False,False,True,0.189,1201
-...
-```
-
-### BPMN Metrics CSV (bpmn_metrics_*.csv)
-```
-model_name,num_tasks,num_exclusive_gateways,num_parallel_gateways,num_events,num_pools,num_subprocesses,num_data_objects,total_elements
-process_1.bpmn,8,2,1,3,1,0,2,15
-...
-```
-
-## Troubleshooting
-
-### "Model file not found" error
-Ensure BPMN files are in `bpmn/dataset/processed/` for legality/conformance or `bpmn/exams-bpmn/` for projection/verification.
-
-### "swipl not found" error
-Install SWI-Prolog: `sudo apt-get install swi-prolog`
-
-### Resume not working
-Ensure the CSV file path is correct and the file exists. The timestamp is extracted from the filename.
-
-### Missing samples in CSV
-Run sample generation first: `python evaluation/src/sample_generator.py`
 
 ## Workflow Example
 

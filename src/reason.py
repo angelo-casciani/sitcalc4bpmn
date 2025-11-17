@@ -4,22 +4,11 @@ import sys
 import subprocess
 import tempfile
 import signal
+import time
 import re
 
 
 def parse_action_list(action_string):
-    """
-    Parse a comma-separated action list, respecting parentheses.
-    
-    This handles cases where actions have arguments with commas, e.g.:
-    "action1(a,b),action2,action3(x,y,z)"
-    
-    Args:
-        action_string: String containing comma-separated actions
-    
-    Returns:
-        List of action strings
-    """
     actions = []
     current_action = ""
     paren_depth = 0
@@ -45,21 +34,12 @@ def parse_action_list(action_string):
 
 
 class IndiGologReasoner:
-    """Handle reasoning tasks over IndiGolog BPMN translations."""
-    
     def __init__(self, model_name, model_base_dir=None):
-        """Initialize the reasoner with a specific model.
-        
-        Args:
-            model_name: The name of the BPMN model (without extension)
-            model_base_dir: Optional base directory for models (defaults to pl_models/)
-        """
         self.model_name = model_name
         self.script_dir = os.path.dirname(os.path.realpath(__file__))
         self.project_root = os.path.abspath(os.path.join(self.script_dir, '..'))
         self.indigolog_dir = os.path.join(self.project_root, 'indigolog')
         self.config_pl = os.path.join(self.indigolog_dir, 'config.pl')
-        # Allow custom model base directory (for evaluation)
         if model_base_dir is not None:
             self.model_dir = os.path.join(model_base_dir, model_name)
         else:
@@ -68,23 +48,19 @@ class IndiGologReasoner:
         self._validate_setup()
     
     def _validate_setup(self):
-        """Validate that all required files and directories exist."""
         if not os.path.exists(self.indigolog_dir):
             raise FileNotFoundError(
                 f"IndiGolog directory not found: {self.indigolog_dir}"
             )
-        
         if not os.path.exists(self.config_pl):
             raise FileNotFoundError(
                 f"IndiGolog config.pl not found: {self.config_pl}"
             )
-        
         if not os.path.exists(self.model_dir):
             raise FileNotFoundError(
                 f"Model directory not found: {self.model_dir}\n"
                 f"Please run the translation first: python main.py {self.model_name}"
             )
-        
         if not os.path.exists(self.main_pl):
             raise FileNotFoundError(
                 f"Main Prolog file not found: {self.main_pl}\n"
@@ -92,14 +68,6 @@ class IndiGologReasoner:
             )
     
     def _build_swipl_cmd(self, temp_file_path):
-        """Build a standard SWI-Prolog command.
-        
-        Args:
-            temp_file_path: Path to the temporary query file
-        
-        Returns:
-            list: Command list for subprocess
-        """
         return [
             'swipl',
             '-g', 'true',
@@ -110,12 +78,6 @@ class IndiGologReasoner:
         ]
     
     def _print_task_header(self, title, details):
-        """Print a formatted task header.
-        
-        Args:
-            title: Title of the task
-            details: Dictionary of detail key-value pairs
-        """
         print(f"\n{'='*70}")
         print(f"{title}")
         print(f"{'='*70}")
@@ -125,27 +87,12 @@ class IndiGologReasoner:
         print(f"{'='*70}\n")
     
     def _print_output_section(self, output):
-        """Print formatted Prolog output.
-        
-        Args:
-            output: Output string to print
-        """
         print("Prolog Output:")
         print("-" * 70)
         print(output)
         print("-" * 70)
     
     def projection(self, fluent_name, actions, expected_value):
-        """Perform a projection task to determine what would be true/false after an action sequence.
-        
-        Args:
-            fluent_name: The name of the fluent to evaluate
-            actions: List of actions in normal order (will be reversed for Prolog)
-            expected_value: Expected truth value (true or false)
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         reversed_actions = list(reversed(actions))
         action_list_str = '[' + ', '.join(reversed_actions) + ']'
         query = f"eval({fluent_name}, {action_list_str}, {expected_value})"
@@ -161,11 +108,6 @@ class IndiGologReasoner:
         return self._run_prolog_query(query)
     
     def _cleanup_indigolog_processes(self):
-        """Kill all IndiGolog-related processes (xterm, swipl, dev_sim, etc.)
-        
-        This ensures a clean state before running any reasoning task.
-        """
-        # Kill processes on port 8000 (Environment Manager)
         try:
             result = subprocess.run(
                 ['lsof', '-ti', ':8000'],
@@ -183,33 +125,24 @@ class IndiGologReasoner:
                         except:
                             pass
         except:
-            # Try fuser as fallback
             try:
                 subprocess.run(['fuser', '-k', '8000/tcp'], capture_output=True, timeout=5)
             except:
                 pass
-        
-        # Kill xterm processes (used for simulator)
         try:
             subprocess.run(['pkill', '-9', '-f', 'xterm.*dev_sim'], capture_output=True, timeout=5)
         except:
             pass
-        
-        # Kill dev_sim.pl processes
         try:
             subprocess.run(['pkill', '-9', '-f', 'dev_sim.pl'], capture_output=True, timeout=5)
         except:
             pass
-        
-        # Kill any stray swipl processes related to IndiGolog
         try:
             subprocess.run(['pkill', '-9', '-f', 'swipl.*indigolog'], capture_output=True, timeout=5)
         except:
             pass
         
-        # Wait for port 8000 to actually be free - poll until it's available
-        import time
-        max_wait = 10.0  # Maximum 10 seconds
+        max_wait = 10.0
         wait_interval = 0.3
         elapsed = 0.0
         
@@ -221,54 +154,15 @@ class IndiGologReasoner:
                     text=True,
                     timeout=2
                 )
-                if not result.stdout.strip():
-                    # Port is free - wait extra time for TCP to fully release
+                if not result.stdout.strip(): # Port is free - wait extra time for TCP to fully release
                     time.sleep(3.0)
                     break
-            except:
-                # Assume port is free if lsof fails
+            except: # Assume port is free on error
                 time.sleep(1.0)
                 break
             
             time.sleep(wait_interval)
             elapsed += wait_interval
-    
-    def _kill_processes_on_port(self, port=8000):
-        """Kill any processes using the specified port.
-        
-        Args:
-            port: Port number to check (default: 8000 for Environment Manager)
-        
-        DEPRECATED: Use _cleanup_indigolog_processes() instead for comprehensive cleanup.
-        """
-        try:
-            result = subprocess.run(
-                ['lsof', '-ti', f':{port}'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                for pid in pids:
-                    if pid:
-                        try:
-                            print(f"Killing process {pid} using port {port}...")
-                            os.kill(int(pid), signal.SIGKILL)
-                        except Exception as e:
-                            print(f"Warning: Could not kill process {pid}: {e}")
-        except FileNotFoundError:
-            try:
-                subprocess.run(
-                    ['fuser', '-k', f'{port}/tcp'],
-                    capture_output=True,
-                    timeout=5
-                )
-            except:
-                pass
-        except Exception as e:
-            print(f"Warning: Error checking/killing processes on port {port}: {e}")
     
     def _run_swipl_with_cleanup(self, cmd, temp_file_path, timeout=300):
         """Run a SWI-Prolog command with proper process cleanup.
@@ -283,7 +177,6 @@ class IndiGologReasoner:
         """
         process = None
         try:
-            # Comprehensive cleanup before starting
             self._cleanup_indigolog_processes()
             
             process = subprocess.Popen(
@@ -339,23 +232,13 @@ class IndiGologReasoner:
                 except Exception as e:
                     print(f"Warning: Error during process cleanup: {e}")
             
-            # Comprehensive cleanup after execution
             self._cleanup_indigolog_processes()
-            
             try:
                 os.unlink(temp_file_path)
             except:
                 pass
     
     def _run_prolog_query(self, query):
-        """Run a Prolog query using swipl.
-        
-        Args:
-            query: The Prolog query to execute
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_file:
             temp_file_path = temp_file.name
             temp_file.write(":- initialization(run_query).\n\n")
@@ -395,21 +278,16 @@ class IndiGologReasoner:
         
         try:
             cmd = self._build_swipl_cmd(temp_file_path)
-            
             print("Executing Prolog query...")
             print(f"Command: {' '.join(cmd)}\n")
             
             exec_success, full_output, returncode = self._run_swipl_with_cleanup(cmd, temp_file_path, timeout=60)
-            
             if not exec_success:
                 return False, full_output
             
             self._print_output_section(full_output)
-            
             success = returncode == 0
-            
-            # Append query result to output for UI extraction
-            if success:
+            if success: # Append query result to output for UI extraction
                 status_line = "\n✓ Query evaluation: TRUE"
             else:
                 status_line = "\n✗ Query evaluation: FALSE"
@@ -430,15 +308,6 @@ class IndiGologReasoner:
             return False, error_msg
     
     def legality(self, proc_name, actions):
-        """Perform a legality/executability check on an action sequence.
-        
-        Args:
-            proc_name: The name of the procedure to define
-            actions: List of actions in execution order
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         action_list_str = '[' + ', '.join(actions) + ']'
         
         self._print_task_header("LEGALITY/EXECUTABILITY CHECK", {
@@ -450,15 +319,6 @@ class IndiGologReasoner:
         return self._run_legality_check(proc_name, action_list_str)
     
     def _run_legality_check(self, proc_name, action_list_str):
-        """Run a legality check by defining a procedure and executing it with indigolog.
-        
-        Args:
-            proc_name: The name of the procedure
-            action_list_str: Formatted action list string
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_file:
             temp_file_path = temp_file.name
             # Use assertz to add the procedure dynamically at initialization time
@@ -745,14 +605,6 @@ class IndiGologReasoner:
             return False, error_msg
     
     def conformance_checking(self, history_actions):
-        """Perform conformance checking using trans_star/4.
-        
-        Args:
-            history_actions: List of actions representing the execution history
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         history_str = '[' + ', '.join(history_actions) + ']'
         
         self._print_task_header("CONFORMANCE CHECKING", {
@@ -764,14 +616,6 @@ class IndiGologReasoner:
         return self._run_conformance_check(history_str)
     
     def _run_conformance_check(self, history_str):
-        """Run a conformance check using trans_star/4.
-        
-        Args:
-            history_str: Formatted history list string
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         with tempfile.NamedTemporaryFile(mode='w', suffix='.pl', delete=False) as temp_file:
             temp_file_path = temp_file.name
             temp_file.write(":- initialization(check_conformance).\n\n")
@@ -851,15 +695,6 @@ class IndiGologReasoner:
             return False, error_msg
     
     def verify_property(self, property_expr, proc_name='property_verification'):
-        """Perform property verification by executing a reasoning task procedure.
-        
-        Args:
-            property_expr: The property expression to verify (Prolog predicate)
-            proc_name: Name of the procedure to execute (default: property_verification)
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         self._print_task_header("PROPERTY VERIFICATION", {
             "Model": self.model_name,
             "Procedure": proc_name,
@@ -870,15 +705,6 @@ class IndiGologReasoner:
         return self._run_property_verification(property_expr, proc_name)
     
     def _run_property_verification(self, property_expr, proc_name):
-        """Run a property verification using time(do(...)).
-        
-        Args:
-            property_expr: The property expression to verify
-            proc_name: The name of the procedure to execute
-        
-        Returns:
-            tuple: (success: bool, output: str)
-        """
         model_file = os.path.join(self.model_dir, f'{self.model_name}.pl')
         
         if not os.path.exists(model_file):
@@ -1006,7 +832,6 @@ class IndiGologReasoner:
                 pass
     
     def interactive_mode(self):
-        """Start an interactive SWI-Prolog session with the model loaded."""
         self._print_task_header("INTERACTIVE MODE", {
             "Model": self.model_name,
             "Loading": f"{self.config_pl}\n                {self.main_pl}"
@@ -1031,7 +856,6 @@ class IndiGologReasoner:
 
 
 def main():
-    """Main entry point for the reasoning script."""
     parser = argparse.ArgumentParser(
         description="Perform reasoning tasks over IndiGolog BPMN translations",
         formatter_class=argparse.RawDescriptionHelpFormatter,

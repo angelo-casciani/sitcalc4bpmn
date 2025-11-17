@@ -1,14 +1,4 @@
 def format_proc_body(proc_body, indent_level=2):
-    """
-    Format a Prolog procedure body with proper indentation.
-    
-    Args:
-        proc_body: The procedure body string
-        indent_level: Starting indentation level (default 2 for inside proc(...))
-        
-    Returns:
-        Formatted string with newlines and indentation
-    """
     if not proc_body or len(proc_body) < 100:
         return proc_body
     
@@ -60,19 +50,8 @@ def format_proc_body(proc_body, indent_level=2):
 
 
 def format_proc_clause(proc_head, proc_body):
-    """
-    Format a complete proc(...) clause.
-    
-    Args:
-        proc_head: The proc head like "main_process(ID)"
-        proc_body: The proc body
-        
-    Returns:
-        Formatted proc clause
-    """
     formatted_body = format_proc_body(proc_body, indent_level=2)
     
-    # If body is simple (one line), keep it simple
     if '\n' not in formatted_body and len(formatted_body) < 80:
         return f"proc({proc_head},\n  {formatted_body}\n)."
     

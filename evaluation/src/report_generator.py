@@ -1,34 +1,17 @@
-"""
-Report Generator Module
-
-This module generates statistics reports from evaluation results:
-- Tables: per-model and aggregate statistics
-"""
-
-import os
+import argparse
 import csv
 import numpy as np
+import os
 
 
 class ReportGenerator:
-    """Generate statistics reports from evaluation results."""
-    
     def __init__(self, results_csv_path: str, output_dir: str):
-        """Initialize the report generator.
-        
-        Args:
-            results_csv_path: Path to detailed results CSV
-            output_dir: Directory for output files
-        """
         self.results_csv_path = results_csv_path
         self.output_dir = output_dir
         self.results = []
-        
-        # Load results
         self._load_results()
     
     def _load_results(self):
-        """Load results from CSV file."""
         if not os.path.exists(self.results_csv_path):
             print(f"Warning: Results file not found: {self.results_csv_path}")
             return
@@ -40,15 +23,11 @@ class ReportGenerator:
         print(f"Loaded {len(self.results)} result entries from {self.results_csv_path}")
     
     def generate_all_reports(self):
-        """Generate all reports."""
         print("\nGenerating statistics reports...")
-        
         self.generate_statistics_table()
-        
         print(f"\nReports saved to: {self.output_dir}")
     
     def generate_statistics_table(self):
-        """Generate a statistics table in TXT format."""
         output_path = os.path.join(self.output_dir, 'statistics_table.txt')
         
         with open(output_path, 'w') as f:
@@ -56,9 +35,7 @@ class ReportGenerator:
             f.write("EVALUATION STATISTICS TABLE\n")
             f.write("="*80 + "\n\n")
             
-            # Per-task type statistics
             task_stats = {}
-            
             for row in self.results:
                 task_type = row.get('task_type', '')
                 if not task_type:
@@ -118,9 +95,6 @@ class ReportGenerator:
 
 
 def main():
-    """Main entry point for report generation."""
-    import argparse
-    
     parser = argparse.ArgumentParser(
         description="Generate reports and visualizations from evaluation results"
     )
@@ -129,15 +103,9 @@ def main():
         default='../results/detailed_results.csv',
         help='Path to detailed results CSV file'
     )
-    parser.add_argument(
-        '--output-dir',
-        default='..',
-        help='Path to output directory'
-    )
-    
+    parser.add_argument('--output-dir', default='..', help='Path to output directory')
     args = parser.parse_args()
     
-    # Resolve paths
     script_dir = os.path.dirname(os.path.abspath(__file__))
     results_csv = os.path.abspath(os.path.join(script_dir, args.results_csv))
     output_dir = os.path.abspath(os.path.join(script_dir, args.output_dir))

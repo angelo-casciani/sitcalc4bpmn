@@ -20,7 +20,6 @@ import time
 import re
 from scipy import stats
 
-# Add parent directories to path for imports
 eval_src_dir = os.path.dirname(os.path.abspath(__file__))
 main_src_dir = os.path.abspath(os.path.join(eval_src_dir, '..', '..', 'src'))
 sys.path.insert(0, eval_src_dir)

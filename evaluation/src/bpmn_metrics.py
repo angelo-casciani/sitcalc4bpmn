@@ -1,16 +1,7 @@
-"""
-BPMN Metrics Extractor
-
-This module parses BPMN XML files and extracts:
-- Structural metrics: #tasks, #exclusive gateways, #parallel gateways, #events, #pools, #subprocesses
-- Elements for sample generation: task names, gateway conditions, data objects
-"""
-
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 import re
-import sys
 import os
 
 
@@ -78,7 +69,6 @@ class BPMNMetricsExtractor:
         Returns:
             BPMNMetrics object containing all extracted metrics
         """
-        # Count tasks (all types: manualTask, serviceTask, userTask, etc.)
         task_elements = []
         task_names = []
         task_ids = []
@@ -93,7 +83,6 @@ class BPMNMetricsExtractor:
                 if name:
                     task_names.append(name)
         
-        # Count gateways
         exclusive_gateways = self._find_all_elements('exclusiveGateway')
         parallel_gateways = self._find_all_elements('parallelGateway')
         
@@ -110,7 +99,6 @@ class BPMNMetricsExtractor:
         for gw in parallel_gateways:
             gateway_ids.append(self._get_attribute(gw, 'id'))
         
-        # Count events (start, end, intermediate, etc.)
         event_elements = []
         event_names = []
         event_ids = []
@@ -152,13 +140,10 @@ class BPMNMetricsExtractor:
                     if name:  # Will always be true now due to default naming
                         start_event_names.append(name)
         
-        # Count pools (participants)
         pools = self._find_all_elements('participant')
         
-        # Count subprocesses
         subprocesses = self._find_all_elements('subProcess')
         
-        # Extract data objects
         data_objects = self._find_all_elements('dataObject')
         data_object_refs = self._find_all_elements('dataObjectReference')
         
@@ -241,33 +226,13 @@ class BPMNMetricsExtractor:
         return match.group(1) if match else ''
     
     def _get_attribute(self, element: ET.Element, attr_name: str) -> str:
-        """Get attribute value from an element.
-        
-        Args:
-            element: XML element
-            attr_name: Attribute name
-            
-        Returns:
-            Attribute value or empty string if not found
-        """
         return element.get(attr_name, '')
     
     def _find_first_task_after_start(self, start_event_ids: List[str]) -> Optional[str]:
-        """Find the first task that follows the start event in the control flow.
-        
-        Args:
-            start_event_ids: List of start event IDs
-            
-        Returns:
-            Name of the first task, or None if not found
-        """
         if not start_event_ids:
             return None
         
-        # Use the first start event
         start_id = start_event_ids[0]
-        
-        # Find the start event element
         start_elements = self._find_all_elements('startEvent')
         start_event = None
         for elem in start_elements:

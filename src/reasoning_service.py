@@ -46,15 +46,11 @@ class ReasoningService:
         lines = full_output.split('\n')
         result_parts = []
         
-        # Check what type of task this is based on final status messages
         is_projection = any('Query evaluation:' in line for line in lines)
         is_legality = any('Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line) for line in lines)
-        
-        # For projection queries, show the actual query result (TRUE/FALSE)
         if is_projection:
             for line in lines:
                 if 'Query evaluation:' in line:
-                    # Extract TRUE or FALSE
                     if 'TRUE' in line:
                         result_parts.append("Query result: TRUE")
                     else:
@@ -62,23 +58,18 @@ class ReasoningService:
                     result_parts.append('-' * 70)
                     result_parts.append('')
                     break
-        # For legality checks, use the final status line (EXECUTABLE/NOT EXECUTABLE)
         elif is_legality:
-            # First check for program failure
             for line in lines:
                 if 'PROGRAM: Program fails' in line or 'Program fails:' in line:
                     result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal - program fails)")
                     result_parts.append('-' * 70)
                     result_parts.append('')
                     break
-            
-            # If no failure found, check for success
             if not result_parts:
                 for line in lines:
                     stripped = line.strip()
                     if stripped.startswith('✓') or stripped.startswith('✗'):
                         if 'Action sequence is' in line and ('EXECUTABLE' in line or 'NOT EXECUTABLE' in line):
-                            # Extract just the message without the emoji
                             if 'NOT EXECUTABLE' in line:
                                 result_parts.append("RESULT: Action sequence is NOT EXECUTABLE (illegal)")
                             else:
@@ -87,7 +78,6 @@ class ReasoningService:
                             result_parts.append('')
                             break
         else:
-            # For other tasks, use the standard RESULT: line
             result_line = None
             for line in lines:
                 if 'RESULT:' in line:
@@ -165,20 +155,17 @@ class ReasoningService:
                         result_parts.append(stripped)
                         break
         
-        # If we have collected parts, join them
         if result_parts:
             return '\n'.join(result_parts)
-        
-        # Fallback: look for simple indicators
         if 'Query evaluation: TRUE' in full_output:
-            return "✅ Query succeeded"
+            return "Query succeeded"
         elif 'Query evaluation: FALSE' in full_output:
-            return "❌ Query failed"
+            return "Query failed"
         
         if 'Action sequence is EXECUTABLE' in full_output:
-            return "✅ Action sequence is EXECUTABLE (legal)"
+            return "Action sequence is EXECUTABLE (legal)"
         elif 'Action sequence is NOT EXECUTABLE' in full_output:
-            return "❌ Action sequence is NOT EXECUTABLE (illegal)"
+            return "Action sequence is NOT EXECUTABLE (illegal)"
         
         if result_line:
             return result_line
@@ -233,10 +220,9 @@ class ReasoningService:
                 success, full_output = self._execute_verify(parameters)
                 task_success = success
             else:
-                return False, f"Task {task_id} not implemented"
-            
+                return False, f"Task {task_id} not implemented"            
             clean_result = self._extract_clean_result(full_output)
-            #clean_result = full_output
+
             return task_success, clean_result
         
         except Exception as e:

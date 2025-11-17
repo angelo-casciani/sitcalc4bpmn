@@ -1,10 +1,3 @@
-"""
-Sample Generator for BPMN Evaluation
-
-This module generates test samples for different reasoning tasks:
-- Legality: samples testing if action sequences are legal (true) or illegal (false)
-- Conformance: samples testing if traces are conformant (true) or not conformant (false)
-"""
 import csv
 import re
 import random
@@ -23,16 +16,6 @@ class SampleGenerator:
         self.prolog_model_path = prolog_model_path
     
     def _convert_to_indigolog_actions(self, trace_with_types, trace_percentage=1.0, include_acquire=False):
-        """Convert trace names to IndiGolog format with start/end pairs.
-        
-        Args:
-            trace_with_types: List of (activity_name, element_type, xor_value) tuples from trace
-            trace_percentage: Percentage of trace to use (0.0 to 1.0), e.g., 0.25 for 25%, 0.75 for 75%
-            include_acquire: If True, include acquire(1, main_process) action after start event
-        
-        Returns:
-            List of IndiGolog-formatted action strings
-        """
         if not trace_with_types:
             return ['start_event(1)']
         
@@ -66,7 +49,6 @@ class SampleGenerator:
             is_event = 'Event' in element_type
             
             if is_event:
-                # Events are just: event_name(1)
                 indigolog_actions.append(f'{activity_name}(1)')
             else:
                 # Regular activities (tasks): activity(start,1) then activity(end,1)
@@ -244,7 +226,6 @@ class SampleGenerator:
             return ""
         
         s = name.lower()
-        # Character replacements (matching _prologify)
         s = s.replace('>', 'larger')
         s = s.replace('<', 'smaller')
         s = s.replace('=', 'equal')
@@ -254,18 +235,15 @@ class SampleGenerator:
         s = s.replace('ö', 'o')
         s = s.replace('ü', 'u')
         s = s.strip(' ')
-        # Replace whitespace and hyphens with underscores
         s = re.sub(r'[\s-]+', '_', s)
-        # Remove special characters
         s = re.sub(r'[?\'\"!@#$%^*+~`|\\/:;&\(\)\[\]{},.]', '', s)
-        # Ensure first character is lowercase or add prefix
         if s and not s[0].islower():
             if s[0].isdigit():
-                s = 'n' + s  # 'n' for numeric
+                s = 'n' + s
             elif s[0] == '_':
-                s = 'v' + s  # 'v' for value
+                s = 'v' + s
             else:
-                s = 'x' + s  # 'x' for other
+                s = 'x' + s
         
         return s
     
@@ -285,7 +263,6 @@ class SampleGenerator:
 if __name__ == '__main__': 
     processed_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'bpmn', 'dataset', 'processed')
     bpmn_files = []
-    # Files are now directly in processed_dir, not in subdirectories
     if os.path.exists(processed_dir):
         for file in os.listdir(processed_dir):
             if file.endswith('.bpmn'):
@@ -301,17 +278,14 @@ if __name__ == '__main__':
                 bpmn_content = f.read()
             
             simulator = SimpleBPMNSimulator(bpmn_content)
-            # Generate multiple traces to distribute samples across
             traces_with_types = simulator.generate_traces_with_types(max_loops=0, max_traces=10)
             print(f"  Generated {len(traces_with_types)} traces")
-            
             if not traces_with_types:
                 print(f"  No traces generated, skipping...")
                 continue
             
             # Model name is now just the filename since files are directly in processed/
             model_name = os.path.basename(bpmn_file)
-            
             generator = SampleGenerator(model_name)
             
             # Generate exactly 8 samples per model

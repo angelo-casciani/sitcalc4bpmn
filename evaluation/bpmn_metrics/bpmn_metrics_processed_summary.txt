@@ -3,7 +3,7 @@
 BPMN STRUCTURAL METRICS SUMMARY - Processed Dataset (Legality & Conformance)
 ================================================================================
 
-Generated: 2025-11-11 15:27:25
+Generated: 2025-11-13 11:59:48
 Dataset: Processed Dataset (Legality & Conformance)
 Source File: bpmn_metrics_processed.csv
 
@@ -52,6 +52,36 @@ Average:        2.8 events/model
 Median:         2.0 events/model
 Minimum:        2 events/model
 Maximum:        9 events/model
+
+================================================================================
+POOLS STATISTICS
+================================================================================
+
+Average:        0.1 pools/model
+Median:         0.0 pools/model
+Minimum:        0 pools/model
+Maximum:        3 pools/model
+Total:          12 pools
+
+================================================================================
+SUBPROCESSES STATISTICS
+================================================================================
+
+Average:        0.0 subprocesses/model
+Median:         0.0 subprocesses/model
+Minimum:        0 subprocesses/model
+Maximum:        0 subprocesses/model
+Total:          0 subprocesses
+
+================================================================================
+DATA OBJECTS STATISTICS
+================================================================================
+
+Average:        0.5 data objects/model
+Median:         0.0 data objects/model
+Minimum:        0 data objects/model
+Maximum:        7 data objects/model
+Total:          43 data objects
 
 ================================================================================
 TOTAL ELEMENTS STATISTICS

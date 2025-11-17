@@ -41,10 +41,18 @@ class ChartGenerator:
         # Structure: task_type -> process_num -> list of samples
         aggregated = defaultdict(lambda: defaultdict(list))
         
+        # Determine if this is leg_conf dataset (starts from process_1, not process_0)
+        is_leg_conf = any('leg_conf' in self.results_csv_path.lower() for _ in [1])
+        
         for row in self.results:
             task_type = row['task_type']
             model_name = row['model_name']
             process_num = self._extract_process_number(model_name)
+            
+            # Adjust process number for leg_conf dataset to start from 0
+            if is_leg_conf:
+                process_num -= 1
+            
             correct = row['correct'].lower() == 'true'
             reasoning_time = float(row['reasoning_time'])
             inferences = int(row['inferences'])
@@ -116,6 +124,11 @@ class ChartGenerator:
         
         print(f"\nGenerating charts from {self.results_csv_path}...")
         csv_basename = os.path.splitext(os.path.basename(self.results_csv_path))[0]
+        
+        # Determine dataset name for title suffix
+        is_leg_conf = 'leg_conf' in self.results_csv_path.lower()
+        dataset_suffix = ' - Textual BPMN Dataset' if is_leg_conf else ' - Exams BPMN Dataset'
+        
         metrics = self._aggregate_by_model_and_task()
         task_types = sorted(metrics.keys())
         if not task_types:
@@ -127,21 +140,21 @@ class ChartGenerator:
         self._create_line_chart(
             plot_data,
             ylabel='Accuracy (%)',
-            title='Accuracy vs Process Model ID',
+            title=f'Accuracy vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_accuracy.png'
         )
         plot_data = self._get_sorted_data(metrics, task_types, 'reasoning_time')
         self._create_line_chart(
             plot_data,
             ylabel='Reasoning Time (seconds)',
-            title='Reasoning Time vs Process Model ID',
+            title=f'Reasoning Time vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_reasoning_time.png'
         )
         plot_data = self._get_sorted_data(metrics, task_types, 'inferences')
         self._create_line_chart(
             plot_data,
             ylabel='Number of Inferences',
-            title='Inferences vs Process Model ID',
+            title=f'Inferences vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_inferences.png'
         )
         
@@ -156,11 +169,15 @@ class ChartGenerator:
         translation_files = {
             'Legality & Conformance': {
                 'csv': os.path.join(metrics_dir, 'translation_metrics_leg_conf.csv'),
-                'filename': 'translation_time_leg_conf.png'
+                'filename': 'translation_time_leg_conf.png',
+                'adjust_offset': True,  # Start from 0 instead of 1
+                'dataset_suffix': ' - Textual BPMN Dataset'
             },
             'Projection & Verification': {
                 'csv': os.path.join(metrics_dir, 'translation_metrics_exams.csv'),
-                'filename': 'translation_time_proj_verif.png'
+                'filename': 'translation_time_proj_verif.png',
+                'adjust_offset': False,  # Keep original numbering
+                'dataset_suffix': ' - Exams BPMN Dataset'
             }
         }
         
@@ -180,6 +197,11 @@ class ChartGenerator:
                 reader = csv.DictReader(f)
                 for row in reader:
                     process_num = self._extract_process_number(row['model_name'])
+                    
+                    # Adjust process number for leg_conf dataset to start from 0
+                    if file_info['adjust_offset']:
+                        process_num -= 1
+                    
                     translation_time = float(row['translation_time_sec'])
                     process_nums.append(process_num)
                     translation_times.append(translation_time)
@@ -206,8 +228,13 @@ class ChartGenerator:
             
             plt.xlabel('Process Model ID', fontsize=12, fontweight='bold')
             plt.ylabel('Translation Time (seconds)', fontsize=12, fontweight='bold')
-            plt.title(f'BPMN to Prolog Translation Time - {dataset_name}', fontsize=14, fontweight='bold')
+            plt.title(f'BPMN to IndiGolog Translation Time{file_info["dataset_suffix"]}', fontsize=14, fontweight='bold')
             plt.grid(True, alpha=0.3, linestyle='--')
+            
+            # Format y-axis to show 3 decimal places
+            from matplotlib.ticker import FormatStrFormatter
+            plt.gca().yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+            
             plt.tight_layout()
             
             output_path = os.path.join(self.charts_dir, file_info['filename'])

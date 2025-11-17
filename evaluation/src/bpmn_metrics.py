@@ -552,6 +552,36 @@ Minimum:        {min(num_events_list)} events/model
 Maximum:        {max(num_events_list)} events/model
 
 {'='*80}
+POOLS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_pools_list):.1f} pools/model
+Median:         {statistics.median(num_pools_list):.1f} pools/model
+Minimum:        {min(num_pools_list)} pools/model
+Maximum:        {max(num_pools_list)} pools/model
+Total:          {sum(num_pools_list)} pools
+
+{'='*80}
+SUBPROCESSES STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_subproc_list):.1f} subprocesses/model
+Median:         {statistics.median(num_subproc_list):.1f} subprocesses/model
+Minimum:        {min(num_subproc_list)} subprocesses/model
+Maximum:        {max(num_subproc_list)} subprocesses/model
+Total:          {sum(num_subproc_list)} subprocesses
+
+{'='*80}
+DATA OBJECTS STATISTICS
+{'='*80}
+
+Average:        {statistics.mean(num_data_obj_list):.1f} data objects/model
+Median:         {statistics.median(num_data_obj_list):.1f} data objects/model
+Minimum:        {min(num_data_obj_list)} data objects/model
+Maximum:        {max(num_data_obj_list)} data objects/model
+Total:          {sum(num_data_obj_list)} data objects
+
+{'='*80}
 TOTAL ELEMENTS STATISTICS
 {'='*80}
 

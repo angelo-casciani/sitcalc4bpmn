@@ -3,7 +3,7 @@
 BPMN STRUCTURAL METRICS SUMMARY - Exams BPMN (Projection & Verification)
 ================================================================================
 
-Generated: 2025-11-11 15:27:25
+Generated: 2025-11-13 11:59:48
 Dataset: Exams BPMN (Projection & Verification)
 Source File: bpmn_metrics_exams.csv
 
@@ -52,6 +52,36 @@ Average:        19.0 events/model
 Median:         21.5 events/model
 Minimum:        2 events/model
 Maximum:        31 events/model
+
+================================================================================
+POOLS STATISTICS
+================================================================================
+
+Average:        2.2 pools/model
+Median:         2.0 pools/model
+Minimum:        1 pools/model
+Maximum:        3 pools/model
+Total:          22 pools
+
+================================================================================
+SUBPROCESSES STATISTICS
+================================================================================
+
+Average:        1.1 subprocesses/model
+Median:         1.0 subprocesses/model
+Minimum:        0 subprocesses/model
+Maximum:        4 subprocesses/model
+Total:          11 subprocesses
+
+================================================================================
+DATA OBJECTS STATISTICS
+================================================================================
+
+Average:        8.8 data objects/model
+Median:         5.0 data objects/model
+Minimum:        2 data objects/model
+Maximum:        24 data objects/model
+Total:          88 data objects
 
 ================================================================================
 TOTAL ELEMENTS STATISTICS

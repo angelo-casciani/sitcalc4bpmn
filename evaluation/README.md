@@ -8,7 +8,7 @@ The framework evaluates BPMN models across four reasoning tasks:
 - **Legality**: Checking executability of action sequences
 - **Conformance**: Verifying execution traces against process specifications
 - **Projection**: Determining fluent truth values after action sequences
-- **Property Verification**: Checking temporal properties over complete executions
+- **Property Verification**: Checking properties over complete executions
 
 ## Components
 
@@ -317,20 +317,6 @@ python evaluation/src/chart_generator.py
 
 # Generate charts for a specific CSV file
 python evaluation/src/chart_generator.py --csv-file evaluation/results/evaluation_results_leg_conf_2025-11-10_14:50:10.csv
-```
-
-## Requirements
-
-- Python 3.8+
-- SWI-Prolog
-- Required Python packages:
-  - matplotlib (for chart generation)
-  - numpy (for statistics)
-  - Other dependencies listed in `requirements.txt`
-
-Install all dependencies:
-```bash
-pip install -r requirements.txt
 ```
 
 ## Notes

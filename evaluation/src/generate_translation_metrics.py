@@ -18,7 +18,7 @@ import sys
 import csv
 import time
 import re
-from pathlib import Path
+from scipy import stats
 
 # Add parent directories to path for imports
 eval_src_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,13 +40,27 @@ def count_actions_and_fluents(prolog_code: str) -> tuple:
     """
     # Count prim_action declarations
     # Pattern matches: prim_action(action_name(...)). or prim_action(Act) :- ...
-    action_pattern = r'^\s*prim_action\s*\('
-    num_actions = len(re.findall(action_pattern, prolog_code, re.MULTILINE))
+    prim_action_pattern = r'^\s*prim_action\s*\('
+    num_prim_actions = len(re.findall(prim_action_pattern, prolog_code, re.MULTILINE))
     
-    # Count fluent declarations (both rel_fluent and fun_fluent)
-    # Pattern matches: rel_fluent(...). or fun_fluent(...).
-    fluent_pattern = r'^\s*(rel_fluent|fun_fluent)\s*\('
-    num_fluents = len(re.findall(fluent_pattern, prolog_code, re.MULTILINE))
+    # Count exog_action declarations
+    # Pattern matches: exog_action(action_name(...)). or exog_action(Act) :- ...
+    exog_action_pattern = r'^\s*exog_action\s*\('
+    num_exog_actions = len(re.findall(exog_action_pattern, prolog_code, re.MULTILINE))
+    
+    # Total actions = prim_action + exog_action
+    num_actions = num_prim_actions + num_exog_actions
+    
+    # Count rel_fluent declarations
+    rel_fluent_pattern = r'^\s*rel_fluent\s*\('
+    num_rel_fluents = len(re.findall(rel_fluent_pattern, prolog_code, re.MULTILINE))
+    
+    # Count fun_fluent declarations
+    fun_fluent_pattern = r'^\s*fun_fluent\s*\('
+    num_fun_fluents = len(re.findall(fun_fluent_pattern, prolog_code, re.MULTILINE))
+    
+    # Total fluents = rel_fluent + fun_fluent
+    num_fluents = num_rel_fluents + num_fun_fluents
     
     return num_actions, num_fluents
 
@@ -210,29 +224,44 @@ CORRELATION ANALYSIS
 
 """
     
-    # Calculate correlations (simple approach)
-    def pearson_correlation(x_list, y_list):
-        n = len(x_list)
-        if n < 2:
-            return 0
-        mean_x = statistics.mean(x_list)
-        mean_y = statistics.mean(y_list)
-        numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(x_list, y_list))
-        denominator_x = sum((x - mean_x) ** 2 for x in x_list)
-        denominator_y = sum((y - mean_y) ** 2 for y in y_list)
-        if denominator_x == 0 or denominator_y == 0:
-            return 0
-        return numerator / (denominator_x * denominator_y) ** 0.5
-    
-    corr_time_actions = pearson_correlation(translation_times, num_actions_list)
-    corr_time_fluents = pearson_correlation(translation_times, num_fluents_list)
-    corr_time_size = pearson_correlation(translation_times, program_sizes)
-    corr_actions_fluents = pearson_correlation(num_actions_list, num_fluents_list)
-    
-    summary += f"Translation Time vs Actions:      {corr_time_actions:+.3f}\n"
-    summary += f"Translation Time vs Fluents:      {corr_time_fluents:+.3f}\n"
-    summary += f"Translation Time vs Program Size: {corr_time_size:+.3f}\n"
-    summary += f"Actions vs Fluents:               {corr_actions_fluents:+.3f}\n"
+    # Calculate correlations with p-values using scipy
+    try:
+        # Calculate Pearson correlation with p-values
+        corr_time_actions, p_time_actions = stats.pearsonr(translation_times, num_actions_list)
+        corr_time_fluents, p_time_fluents = stats.pearsonr(translation_times, num_fluents_list)
+        corr_time_size, p_time_size = stats.pearsonr(translation_times, program_sizes)
+        corr_actions_fluents, p_actions_fluents = stats.pearsonr(num_actions_list, num_fluents_list)
+        
+        summary += f"Translation Time vs Actions:      r = {corr_time_actions:+.3f}, p = {p_time_actions:.4f}\n"
+        summary += f"Translation Time vs Fluents:      r = {corr_time_fluents:+.3f}, p = {p_time_fluents:.4f}\n"
+        summary += f"Translation Time vs Program Size: r = {corr_time_size:+.3f}, p = {p_time_size:.4f}\n"
+        summary += f"Actions vs Fluents:               r = {corr_actions_fluents:+.3f}, p = {p_actions_fluents:.4f}\n"
+        
+    except ImportError:
+        # Fallback to simple correlation without p-values if scipy not available
+        def pearson_correlation(x_list, y_list):
+            n = len(x_list)
+            if n < 2:
+                return 0
+            mean_x = statistics.mean(x_list)
+            mean_y = statistics.mean(y_list)
+            numerator = sum((x - mean_x) * (y - mean_y) for x, y in zip(x_list, y_list))
+            denominator_x = sum((x - mean_x) ** 2 for x in x_list)
+            denominator_y = sum((y - mean_y) ** 2 for y in y_list)
+            if denominator_x == 0 or denominator_y == 0:
+                return 0
+            return numerator / (denominator_x * denominator_y) ** 0.5
+        
+        corr_time_actions = pearson_correlation(translation_times, num_actions_list)
+        corr_time_fluents = pearson_correlation(translation_times, num_fluents_list)
+        corr_time_size = pearson_correlation(translation_times, program_sizes)
+        corr_actions_fluents = pearson_correlation(num_actions_list, num_fluents_list)
+        
+        summary += f"Translation Time vs Actions:      r = {corr_time_actions:+.3f}\n"
+        summary += f"Translation Time vs Fluents:      r = {corr_time_fluents:+.3f}\n"
+        summary += f"Translation Time vs Program Size: r = {corr_time_size:+.3f}\n"
+        summary += f"Actions vs Fluents:               r = {corr_actions_fluents:+.3f}\n"
+        summary += "\nNote: p-values not available (scipy not installed)\n"
     
     summary += f"""
 {'='*80}

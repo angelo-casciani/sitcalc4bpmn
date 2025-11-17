@@ -3,7 +3,7 @@
 TRANSLATION METRICS SUMMARY - Legality & Conformance (Processed Dataset)
 ================================================================================
 
-Generated: 2025-11-11 15:27:41
+Generated: 2025-11-13 14:27:49
 Dataset: Legality & Conformance (Processed Dataset)
 Source File: translation_metrics_leg_conf.csv
 
@@ -12,28 +12,28 @@ DATASET OVERVIEW
 ================================================================================
 
 Total Models Translated: 89
-Total Actions Generated: 1624
+Total Actions Generated: 3055
 Total Fluents Generated: 746
 
 ================================================================================
 TRANSLATION TIME STATISTICS (seconds)
 ================================================================================
 
-Average:        0.004291 sec
-Median:         0.003742 sec
-Std Deviation:  0.001589 sec
-Minimum:        0.002519 sec (process_66.bpmn)
-Maximum:        0.011408 sec (process_54.bpmn)
+Average:        0.004505 sec
+Median:         0.003856 sec
+Std Deviation:  0.001660 sec
+Minimum:        0.002555 sec (process_66.bpmn)
+Maximum:        0.011803 sec (process_18.bpmn)
 
 ================================================================================
 ACTIONS STATISTICS (prim_action declarations)
 ================================================================================
 
-Total Actions:  1624
-Average:        18.2 actions/model
-Median:         17.0 actions/model
-Minimum:        13 actions/model
-Maximum:        28 actions/model (process_68.bpmn)
+Total Actions:  3055
+Average:        34.3 actions/model
+Median:         32.0 actions/model
+Minimum:        24 actions/model
+Maximum:        54 actions/model (process_68.bpmn)
 
 ================================================================================
 FLUENTS STATISTICS (rel_fluent + fun_fluent declarations)
@@ -49,49 +49,49 @@ Maximum:        15 fluents/model (process_13.bpmn)
 PROGRAM SIZE STATISTICS (lines of Prolog code)
 ================================================================================
 
-Average:        270.4 lines/model
-Median:         248.0 lines/model
+Average:        261.7 lines/model
+Median:         247.0 lines/model
 Minimum:        192 lines (process_66.bpmn)
-Maximum:        764 lines (process_54.bpmn)
+Maximum:        603 lines (process_81.bpmn)
 
 ================================================================================
 TOP 5 MODELS BY TRANSLATION TIME
 ================================================================================
 
-1. process_54.bpmn: 0.011408 sec (actions=19, fluents=12, lines=764)
-2. process_60.bpmn: 0.009644 sec (actions=24, fluents=12, lines=600)
-3. process_13.bpmn: 0.009312 sec (actions=15, fluents=15, lines=322)
-4. process_81.bpmn: 0.009224 sec (actions=24, fluents=13, lines=603)
-5. process_31.bpmn: 0.007272 sec (actions=24, fluents=12, lines=318)
+1. process_18.bpmn: 0.011803 sec (actions=52, fluents=8, lines=378)
+2. process_17.bpmn: 0.009676 sec (actions=28, fluents=14, lines=252)
+3. process_81.bpmn: 0.009168 sec (actions=44, fluents=13, lines=603)
+4. process_13.bpmn: 0.008204 sec (actions=28, fluents=15, lines=294)
+5. process_15.bpmn: 0.008074 sec (actions=26, fluents=10, lines=236)
 
 ================================================================================
 TOP 5 MODELS BY COMPLEXITY (actions + fluents)
 ================================================================================
 
-1. process_49.bpmn: 38 total elements (actions=26, fluents=12)
-2. process_44.bpmn: 37 total elements (actions=27, fluents=10)
-3. process_81.bpmn: 37 total elements (actions=24, fluents=13)
-4. process_30.bpmn: 36 total elements (actions=24, fluents=12)
-5. process_31.bpmn: 36 total elements (actions=24, fluents=12)
+1. process_49.bpmn: 61 total elements (actions=49, fluents=12)
+2. process_68.bpmn: 61 total elements (actions=54, fluents=7)
+3. process_18.bpmn: 60 total elements (actions=52, fluents=8)
+4. process_44.bpmn: 59 total elements (actions=49, fluents=10)
+5. process_58.bpmn: 59 total elements (actions=48, fluents=11)
 
 ================================================================================
 TOP 5 LARGEST PROGRAMS (by lines of code)
 ================================================================================
 
-1. process_54.bpmn: 764 lines (actions=19, fluents=12)
-2. process_81.bpmn: 603 lines (actions=24, fluents=13)
-3. process_60.bpmn: 600 lines (actions=24, fluents=12)
-4. process_29.bpmn: 440 lines (actions=24, fluents=8)
-5. process_64.bpmn: 398 lines (actions=22, fluents=8)
+1. process_81.bpmn: 603 lines (actions=44, fluents=13)
+2. process_29.bpmn: 440 lines (actions=46, fluents=8)
+3. process_60.bpmn: 404 lines (actions=45, fluents=12)
+4. process_64.bpmn: 398 lines (actions=41, fluents=8)
+5. process_18.bpmn: 378 lines (actions=52, fluents=8)
 
 ================================================================================
 CORRELATION ANALYSIS
 ================================================================================
 
-Translation Time vs Actions:      +0.544
-Translation Time vs Fluents:      +0.756
-Translation Time vs Program Size: +0.877
-Actions vs Fluents:               +0.356
+Translation Time vs Actions:      r = +0.507, p = 0.0000
+Translation Time vs Fluents:      r = +0.670, p = 0.0000
+Translation Time vs Program Size: r = +0.625, p = 0.0000
+Actions vs Fluents:               r = +0.333, p = 0.0014
 
 ================================================================================
 END OF SUMMARY

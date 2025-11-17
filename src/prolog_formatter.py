@@ -1,7 +1,3 @@
-"""
-Utility functions for formatting Prolog code
-"""
-
 def format_proc_body(proc_body, indent_level=2):
     """
     Format a Prolog procedure body with proper indentation.

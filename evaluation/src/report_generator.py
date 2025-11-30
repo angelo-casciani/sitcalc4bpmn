@@ -49,11 +49,19 @@ class ReportGenerator:
                         'total': 0
                     }
                 
-                task_stats[task_type]['times'].append(float(row.get('reasoning_time_sec', 0)))
+                # Skip rows that ended with an error/timeout
+                status = row.get('status', '').strip().lower()
+                if status in ['error', 'timeout']:
+                    task_stats[task_type]['total'] += 1
+                    continue
+
+                task_stats[task_type]['times'].append(float(row.get('reasoning_time', row.get('reasoning_time_sec', 0))))
                 task_stats[task_type]['inferences'].append(int(row.get('inferences', 0)))
                 task_stats[task_type]['total'] += 1
                 
-                if self._results_match(row.get('expected', ''), row.get('actual', '')):
+                # The CSV uses 'returned' as the actual result (boolean-like), convert to compare
+                actual_val = row.get('returned', '')
+                if self._results_match(row.get('expected', ''), actual_val):
                     task_stats[task_type]['correct'] += 1
             
             f.write("Task Type Statistics\n")

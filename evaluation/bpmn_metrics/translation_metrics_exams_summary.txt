@@ -3,7 +3,7 @@
 TRANSLATION METRICS SUMMARY - Projection & Verification (Exams BPMN)
 ================================================================================
 
-Generated: 2025-11-13 14:27:50
+Generated: 2025-11-30 16:09:10
 Dataset: Projection & Verification (Exams BPMN)
 Source File: translation_metrics_exams.csv
 
@@ -19,11 +19,11 @@ Total Fluents Generated: 96
 TRANSLATION TIME STATISTICS (seconds)
 ================================================================================
 
-Average:        0.005184 sec
-Median:         0.005137 sec
-Std Deviation:  0.001277 sec
-Minimum:        0.003502 sec (process_8.bpmn)
-Maximum:        0.007151 sec (process_5.bpmn)
+Average:        0.006242 sec
+Median:         0.004700 sec
+Std Deviation:  0.004385 sec
+Minimum:        0.003486 sec (process_8.bpmn)
+Maximum:        0.018332 sec (process_3.bpmn)
 
 ================================================================================
 ACTIONS STATISTICS (prim_action declarations)
@@ -58,11 +58,11 @@ Maximum:        413 lines (process_1.bpmn)
 TOP 5 MODELS BY TRANSLATION TIME
 ================================================================================
 
-1. process_5.bpmn: 0.007151 sec (actions=42, fluents=7, lines=384)
-2. process_1.bpmn: 0.006635 sec (actions=40, fluents=10, lines=413)
-3. process_3.bpmn: 0.006444 sec (actions=52, fluents=13, lines=368)
-4. process_2.bpmn: 0.005627 sec (actions=30, fluents=10, lines=267)
-5. process_0.bpmn: 0.005454 sec (actions=34, fluents=8, lines=307)
+1. process_3.bpmn: 0.018332 sec (actions=52, fluents=13, lines=368)
+2. process_5.bpmn: 0.006940 sec (actions=42, fluents=7, lines=384)
+3. process_1.bpmn: 0.006263 sec (actions=40, fluents=10, lines=413)
+4. process_2.bpmn: 0.005635 sec (actions=30, fluents=10, lines=267)
+5. process_7.bpmn: 0.004704 sec (actions=57, fluents=8, lines=311)
 
 ================================================================================
 TOP 5 MODELS BY COMPLEXITY (actions + fluents)
@@ -88,9 +88,9 @@ TOP 5 LARGEST PROGRAMS (by lines of code)
 CORRELATION ANALYSIS
 ================================================================================
 
-Translation Time vs Actions:      r = +0.266, p = 0.4568
-Translation Time vs Fluents:      r = -0.087, p = 0.8103
-Translation Time vs Program Size: r = +0.838, p = 0.0025
+Translation Time vs Actions:      r = +0.499, p = 0.1420
+Translation Time vs Fluents:      r = +0.466, p = 0.1745
+Translation Time vs Program Size: r = +0.510, p = 0.1317
 Actions vs Fluents:               r = +0.013, p = 0.9711
 
 ================================================================================

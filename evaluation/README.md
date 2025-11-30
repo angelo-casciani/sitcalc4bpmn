@@ -53,7 +53,7 @@ This creates:
 
 ### Generating Translation Metrics
 
-To generate translation metrics with correct action and fluent counts:
+To generate translation metrics with action and fluent counts:
 ```bash
 python evaluation/src/generate_translation_metrics.py
 ```
@@ -96,6 +96,7 @@ Run only projection & verification:
 ```bash
 python evaluation/src/evaluate.py --mode test --task projection_verification
 ```
+Translation metrics should be generated using `generate_translation_metrics.py`.
 
 ### Resume Incomplete Evaluation
 
@@ -155,7 +156,7 @@ Stored in `bpmn_metrics/bpmn_metrics_processed.csv` and `bpmn_metrics/bpmn_metri
 - Number of data objects
 - Total elements
 
-### Translation Metrics (collected during evaluation)
+### Translation Metrics
 Stored in `bpmn_metrics/translation_metrics_*.csv`:
 - Translation time (seconds)
 - Number of primitive actions
@@ -171,6 +172,8 @@ Stored in `bpmn_metrics/translation_metrics_*.csv`:
 - Correctness (correct/incorrect)
 - Reasoning time (seconds)
 - Number of Prolog inferences
+- Status (success, failure, conforms, not_conforms, error, or timeout)
+- Error Message
 
 ### Summary Metrics (generated from CSV in assess mode)
 - Total samples evaluated
@@ -188,6 +191,9 @@ Three charts per evaluation task, each showing two lines (one per task type):
 1. **Accuracy Chart**: Percentage of correct predictions vs process model number
 2. **Reasoning Time Chart**: Average reasoning time (seconds) vs process model number
 3. **Inferences Chart**: Average number of inferences vs process model number
+
+Notes on errors/timeouts:
+- Rows with `status` == `error` or `timeout` are excluded from the accuracy/time/inference charts and per-task averages to avoid skewing the results. These counts are reported separately in the generated summary text.
 
 Charts are saved as high-resolution PNG files (300 DPI) in `results/charts/`.
 

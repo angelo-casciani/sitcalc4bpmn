@@ -20,7 +20,8 @@ class ReasoningMetrics:
     reasoning_time: float  # seconds
     cpu_time: float  # seconds
     inferences: int
-    result: str  # "true", "false", "success", "failure", "conforms", "not_conforms"
+    result: str  # "true", "false", "success", "failure", "conforms", "not_conforms", "error", "timeout"
+    error_msg: str = ""  # Optional error message or raw output snippet
     
     def to_dict(self):
         return {
@@ -134,6 +135,11 @@ class MetricsCollector:
             result = "not_conforms"
             print(f"        [DEBUG METRICS] Result set to: not_conforms")
         
+        # Check for timeout cases first (should be treated distinctly)
+        elif ("timed out" in output.lower() or "process timed out" in output.lower() or "timeout" in output.lower()):
+            result = "timeout"
+            print(f"        [DEBUG METRICS] Result set to: timeout")
+
         # Check for error cases
         elif "RESULT: ERROR" in output or ("ERROR:" in output and "RESULT:" not in output):
             result = "error"
@@ -148,7 +154,8 @@ class MetricsCollector:
             reasoning_time=reasoning_time,
             cpu_time=cpu_time,
             inferences=inferences,
-            result=result
+            result=result,
+            error_msg=(output.strip()[:200] if 'ERROR' in output.upper() or 'timed out' in output.lower() else '')
         )
     
     @staticmethod

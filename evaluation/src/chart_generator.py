@@ -44,6 +44,10 @@ class ChartGenerator:
         # Determine if this is leg_conf dataset (starts from process_1, not process_0)
         is_leg_conf = any('leg_conf' in self.results_csv_path.lower() for _ in [1])
         
+        # Also collect timeout/error markers per task and process
+        timeouts_by_task = defaultdict(set)
+        errors_by_task = defaultdict(set)
+
         for row in self.results:
             task_type = row['task_type']
             model_name = row['model_name']
@@ -53,6 +57,16 @@ class ChartGenerator:
             if is_leg_conf:
                 process_num -= 1
             
+            # Record timeout/error presence for markers, but exclude from metric aggregation
+            status = row.get('status', '').strip().lower()
+            if status == 'timeout':
+                timeouts_by_task[task_type].add(process_num)
+                # do not include timed-out rows in aggregated metrics
+                continue
+            if status == 'error':
+                errors_by_task[task_type].add(process_num)
+                # do not include error rows in aggregated metrics
+                continue
             correct = row['correct'].lower() == 'true'
             reasoning_time = float(row['reasoning_time'])
             inferences = int(row['inferences'])
@@ -78,7 +92,7 @@ class ChartGenerator:
                     'inferences': avg_inferences
                 }
         
-        return metrics
+        return metrics, timeouts_by_task, errors_by_task
     
     def _get_sorted_data(self, metrics: dict, task_types: list, metric_name: str):
         plot_data = {}
@@ -92,7 +106,8 @@ class ChartGenerator:
         
         return plot_data
     
-    def _create_line_chart(self, plot_data: dict, ylabel: str, title: str, filename: str):
+    def _create_line_chart(self, plot_data: dict, ylabel: str, title: str, filename: str,
+                           timeouts_by_task: dict = None, errors_by_task: dict = None):
         if not plot_data:
             print(f"  Skipping {title} (no data)")
             return
@@ -110,6 +125,25 @@ class ChartGenerator:
         plt.title(title, fontsize=14, fontweight='bold')
         plt.grid(True, alpha=0.3, linestyle='--')
         plt.legend(fontsize=11, loc='best')
+        # If we have timeout markers, plot them as red 'x' at y=0
+        any_timeouts = False
+        if timeouts_by_task:
+            timeout_x = []
+            timeout_y = []
+            for task_type, process_set in timeouts_by_task.items():
+                for proc in process_set:
+                    timeout_x.append(proc)
+                    timeout_y.append(0)
+            if timeout_x:
+                any_timeouts = True
+                plt.scatter(timeout_x, timeout_y, marker='x', color='red', s=80, linewidths=2, zorder=20, label='Timeout')
+
+        # If there are timeouts and current y-axis doesn't start at 0, extend to 0 so markers are visible
+        if any_timeouts:
+            ymin, ymax = plt.ylim()
+            if ymin > 0:
+                plt.ylim(0, ymax)
+
         plt.tight_layout()
         
         output_path = os.path.join(self.charts_dir, filename)
@@ -129,7 +163,7 @@ class ChartGenerator:
         is_leg_conf = 'leg_conf' in self.results_csv_path.lower()
         dataset_suffix = ' - Textual BPMN Dataset' if is_leg_conf else ' - Exams BPMN Dataset'
         
-        metrics = self._aggregate_by_model_and_task()
+        metrics, timeouts_by_task, errors_by_task = self._aggregate_by_model_and_task()
         task_types = sorted(metrics.keys())
         if not task_types:
             print("  No task types found in data")
@@ -142,6 +176,7 @@ class ChartGenerator:
             ylabel='Accuracy (%)',
             title=f'Accuracy vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_accuracy.png'
+            , timeouts_by_task=timeouts_by_task, errors_by_task=errors_by_task
         )
         plot_data = self._get_sorted_data(metrics, task_types, 'reasoning_time')
         self._create_line_chart(
@@ -149,6 +184,7 @@ class ChartGenerator:
             ylabel='Reasoning Time (seconds)',
             title=f'Reasoning Time vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_reasoning_time.png'
+            , timeouts_by_task=timeouts_by_task, errors_by_task=errors_by_task
         )
         plot_data = self._get_sorted_data(metrics, task_types, 'inferences')
         self._create_line_chart(
@@ -156,6 +192,7 @@ class ChartGenerator:
             ylabel='Number of Inferences',
             title=f'Inferences vs Process Model ID{dataset_suffix}',
             filename=f'{csv_basename}_inferences.png'
+            , timeouts_by_task=timeouts_by_task, errors_by_task=errors_by_task
         )
         
         print(f"\nAll charts saved to: {self.charts_dir}")

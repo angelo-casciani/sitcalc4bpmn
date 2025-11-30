@@ -33,35 +33,6 @@ sitcalc4bpmn/
 └── README.md                  # This file
 ```
 
-## Features
-
-### Web-Based User Interface (`src/ui.py`)
-An intuitive web interface for:
-- *Upload & Translate*: Drag-and-drop BPMN files and translate them to IndiGolog
-- *View Translation*: Display generated Prolog code with syntax highlighting
-- *Load Models*: Access previously translated models
-- *Reasoning Tasks*: Execute all reasoning tasks with dynamic parameter inputs
-  - Projection, Legality, Execution, Conformance, Property Verification
-  - Clear parameter descriptions and validation
-  - Output display
-
-### Translation (`src/bpmn2indi_cli.py`)
-Parse BPMN XML files and generate IndiGolog Prolog code with:
-- Fluent definitions (state variables)
-- Action definitions and preconditions
-- Causal laws (successor state axioms)
-- Process control procedures (ConGolog programs)
-
-### Reasoning (`src/reason.py`)
-Six powerful reasoning capabilities:
-
-1. *Projection Task*: Determine what fluents hold after a sequence of actions
-2. *Legality/Executability Check*: Verify if an action sequence is executable (all preconditions satisfied)
-3. *Process Execution*: Execute the whole BPMN process with exogenous events and capture execution history
-4. *Conformance Checking*: Verify if an execution history conforms to the process specification
-5. *Property Verification*: Execute custom reasoning tasks to verify process properties
-6. *Interactive Mode*: Start a Prolog REPL with the model loaded for manual queries
-
 ## Quick Start
 
 ### Prerequisites

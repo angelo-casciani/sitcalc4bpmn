@@ -9,11 +9,11 @@ OVERALL METRICS:
   Precision: 94.5%
   Recall:    84.4%
   F1-Score:  89.1%
-  Average Reasoning Time: 0.038 seconds
+  Average Reasoning Time (excludes timeouts): 0.038 seconds
   Valid-only Accuracy: 89.7%
   Timeouts: 0
   Errors: 0
-  Average Inferences: 388915
+  Average Inferences (excludes timeouts): 388915
 
 PER-TASK BREAKDOWN:
 Legality: 350/384 correct (91.1%)

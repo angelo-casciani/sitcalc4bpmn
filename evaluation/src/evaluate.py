@@ -662,34 +662,47 @@ class BPMNEvaluator:
                 'precision': precision, 'recall': recall, 'f1': f1_score, 'accuracy': accuracy
             }
         
-        overall_metrics = calculate_metrics(results, treat_timeouts_incorrect=True)
+        # Compute overall metrics excluding timed-out runs (do not consider timeouts when computing accuracy/precision/recall)
+        results_no_timeouts = [r for r in results if r.get('status') != 'timeout']
+        overall_metrics = calculate_metrics(results_no_timeouts, treat_timeouts_incorrect=False)
         valid_results = [r for r in results if r.get('status') not in ['error', 'timeout']]
         valid_metrics = calculate_metrics(valid_results) if valid_results else None
         total = len(results)
         correct = sum(1 for r in results if r['correct'])
         
-        avg_time = sum(r['reasoning_time'] for r in results) / total
-        avg_inferences = sum(r['inferences'] for r in results) / total
+        # Exclude timed-out runs when computing average metrics
+        non_timeout_results = [r for r in results if r.get('status') != 'timeout']
+        num_non_timeout = len(non_timeout_results)
+        avg_time = sum(r['reasoning_time'] for r in non_timeout_results) / num_non_timeout if num_non_timeout > 0 else 0
+        avg_inferences = sum(r['inferences'] for r in non_timeout_results) / num_non_timeout if num_non_timeout > 0 else 0
         
         legality_results = [r for r in results if r['task_type'] == 'legality']
         conformance_results = [r for r in results if r['task_type'] == 'conformance']
         projection_results = [r for r in results if r['task_type'] == 'projection']
         verification_results = [r for r in results if r['task_type'] == 'verification']
         
-        legality_metrics = calculate_metrics(legality_results, treat_timeouts_incorrect=True) if legality_results else None
-        conformance_metrics = calculate_metrics(conformance_results, treat_timeouts_incorrect=True) if conformance_results else None
-        projection_metrics = calculate_metrics(projection_results, treat_timeouts_incorrect=True) if projection_results else None
-        verification_metrics = calculate_metrics(verification_results, treat_timeouts_incorrect=True) if verification_results else None
+        # Compute per-task metrics excluding timeouts
+        legality_metrics = calculate_metrics([r for r in legality_results if r.get('status') != 'timeout'], treat_timeouts_incorrect=False) if legality_results else None
+        conformance_metrics = calculate_metrics([r for r in conformance_results if r.get('status') != 'timeout'], treat_timeouts_incorrect=False) if conformance_results else None
+        projection_metrics = calculate_metrics([r for r in projection_results if r.get('status') != 'timeout'], treat_timeouts_incorrect=False) if projection_results else None
+        verification_metrics = calculate_metrics([r for r in verification_results if r.get('status') != 'timeout'], treat_timeouts_incorrect=False) if verification_results else None
         
-        legality_time = sum(r['reasoning_time'] for r in legality_results) / len(legality_results) if legality_results else 0
-        conformance_time = sum(r['reasoning_time'] for r in conformance_results) / len(conformance_results) if conformance_results else 0
-        projection_time = sum(r['reasoning_time'] for r in projection_results) / len(projection_results) if projection_results else 0
-        verification_time = sum(r['reasoning_time'] for r in verification_results) / len(verification_results) if verification_results else 0
+        # Compute per-task average reasoning time excluding timeouts
+        legality_non_timeout = [r for r in legality_results if r.get('status') != 'timeout']
+        conformance_non_timeout = [r for r in conformance_results if r.get('status') != 'timeout']
+        projection_non_timeout = [r for r in projection_results if r.get('status') != 'timeout']
+        verification_non_timeout = [r for r in verification_results if r.get('status') != 'timeout']
+
+        legality_time = sum(r['reasoning_time'] for r in legality_non_timeout) / len(legality_non_timeout) if legality_non_timeout else 0
+        conformance_time = sum(r['reasoning_time'] for r in conformance_non_timeout) / len(conformance_non_timeout) if conformance_non_timeout else 0
+        projection_time = sum(r['reasoning_time'] for r in projection_non_timeout) / len(projection_non_timeout) if projection_non_timeout else 0
+        verification_time = sum(r['reasoning_time'] for r in verification_non_timeout) / len(verification_non_timeout) if verification_non_timeout else 0
         
-        legality_inf = sum(r['inferences'] for r in legality_results) / len(legality_results) if legality_results else 0
-        conformance_inf = sum(r['inferences'] for r in conformance_results) / len(conformance_results) if conformance_results else 0
-        projection_inf = sum(r['inferences'] for r in projection_results) / len(projection_results) if projection_results else 0
-        verification_inf = sum(r['inferences'] for r in verification_results) / len(verification_results) if verification_results else 0
+        # Compute per-task average inferences excluding timeouts
+        legality_inf = sum(r['inferences'] for r in legality_non_timeout) / len(legality_non_timeout) if legality_non_timeout else 0
+        conformance_inf = sum(r['inferences'] for r in conformance_non_timeout) / len(conformance_non_timeout) if conformance_non_timeout else 0
+        projection_inf = sum(r['inferences'] for r in projection_non_timeout) / len(projection_non_timeout) if projection_non_timeout else 0
+        verification_inf = sum(r['inferences'] for r in verification_non_timeout) / len(verification_non_timeout) if verification_non_timeout else 0
         
         summary_lines = []
         summary_lines.append("=" * 70)
@@ -703,37 +716,37 @@ class BPMNEvaluator:
         summary_lines.append(f"  Precision: {overall_metrics['precision']*100:.1f}%")
         summary_lines.append(f"  Recall:    {overall_metrics['recall']*100:.1f}%")
         summary_lines.append(f"  F1-Score:  {overall_metrics['f1']*100:.1f}%")
-        summary_lines.append(f"  Average Reasoning Time: {avg_time:.3f} seconds")
+        summary_lines.append(f"  Average Reasoning Time (excludes timeouts): {avg_time:.3f} seconds")
         if valid_metrics:
             summary_lines.append(f"  Valid-only Accuracy: {valid_metrics['accuracy']*100:.1f}%")
         else:
             summary_lines.append("  Valid-only Accuracy: N/A")
         summary_lines.append(f"  Timeouts: {sum(1 for r in results if r.get('status') == 'timeout')}")
         summary_lines.append(f"  Errors: {sum(1 for r in results if r.get('status') == 'error')}")
-        summary_lines.append(f"  Average Inferences: {avg_inferences:.0f}")
+        summary_lines.append(f"  Average Inferences (excludes timeouts): {avg_inferences:.0f}")
         summary_lines.append("")
         summary_lines.append("PER-TASK BREAKDOWN:")
         
         if legality_metrics:
-            summary_lines.append(f"Legality: {legality_metrics['tp'] + legality_metrics['tn']}/{len(legality_results)} correct ({legality_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"Legality: {legality_metrics['tp'] + legality_metrics['tn']}/{len(legality_non_timeout)} correct ({legality_metrics['accuracy']*100:.1f}%)")
             summary_lines.append(f"  Precision: {legality_metrics['precision']*100:.1f}%, Recall: {legality_metrics['recall']*100:.1f}%, F1: {legality_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {legality_time:.3f}s, Avg Inferences: {legality_inf:.0f}")
             summary_lines.append(f"  Timeouts: {sum(1 for r in legality_results if r.get('status') == 'timeout')}, Errors: {sum(1 for r in legality_results if r.get('status') == 'error')}")
         
         if conformance_metrics:
-            summary_lines.append(f"Conformance: {conformance_metrics['tp'] + conformance_metrics['tn']}/{len(conformance_results)} correct ({conformance_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"Conformance: {conformance_metrics['tp'] + conformance_metrics['tn']}/{len(conformance_non_timeout)} correct ({conformance_metrics['accuracy']*100:.1f}%)")
             summary_lines.append(f"  Precision: {conformance_metrics['precision']*100:.1f}%, Recall: {conformance_metrics['recall']*100:.1f}%, F1: {conformance_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {conformance_time:.3f}s, Avg Inferences: {conformance_inf:.0f}")
             summary_lines.append(f"  Timeouts: {sum(1 for r in conformance_results if r.get('status') == 'timeout')}, Errors: {sum(1 for r in conformance_results if r.get('status') == 'error')}")
         
         if projection_metrics:
-            summary_lines.append(f"Projection: {projection_metrics['tp'] + projection_metrics['tn']}/{len(projection_results)} correct ({projection_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"Projection: {projection_metrics['tp'] + projection_metrics['tn']}/{len(projection_non_timeout)} correct ({projection_metrics['accuracy']*100:.1f}%)")
             summary_lines.append(f"  Precision: {projection_metrics['precision']*100:.1f}%, Recall: {projection_metrics['recall']*100:.1f}%, F1: {projection_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {projection_time:.3f}s, Avg Inferences: {projection_inf:.0f}")
             summary_lines.append(f"  Timeouts: {sum(1 for r in projection_results if r.get('status') == 'timeout')}, Errors: {sum(1 for r in projection_results if r.get('status') == 'error')}")
         
         if verification_metrics:
-            summary_lines.append(f"Property Verification: {verification_metrics['tp'] + verification_metrics['tn']}/{len(verification_results)} correct ({verification_metrics['accuracy']*100:.1f}%)")
+            summary_lines.append(f"Property Verification: {verification_metrics['tp'] + verification_metrics['tn']}/{len(verification_non_timeout)} correct ({verification_metrics['accuracy']*100:.1f}%)")
             summary_lines.append(f"  Precision: {verification_metrics['precision']*100:.1f}%, Recall: {verification_metrics['recall']*100:.1f}%, F1: {verification_metrics['f1']*100:.1f}%")
             summary_lines.append(f"  Avg Time: {verification_time:.3f}s, Avg Inferences: {verification_inf:.0f}")
             summary_lines.append(f"  Timeouts: {sum(1 for r in verification_results if r.get('status') == 'timeout')}, Errors: {sum(1 for r in verification_results if r.get('status') == 'error')}")

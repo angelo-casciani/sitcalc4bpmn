@@ -35,12 +35,6 @@ $ swipl config.pl examples/case_study/main.pl
 
 This will load the domain specification, but also the whole INDIGOLOG architecture (interpreter, temporal projector, devices, libraries, etc.)
 
-Clone the [INDIGOLOG repo](https://github.com/ai-krml-uoft/indigolog):
-
-```shell
-$ git clone git@github.com:ai-krml-uoft/indigolog.git
-```
-
 Test the most simple elevator example:
 
 ```shell

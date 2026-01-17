@@ -31,7 +31,7 @@ class BPMNMetrics:
     def total_elements(self) -> int:
         return (self.num_tasks + self.num_exclusive_gateways + 
                 self.num_parallel_gateways + self.num_events + 
-                self.num_pools + self.num_subprocesses)
+                self.num_subprocesses + self.num_data_objects)
     
     def to_dict(self) -> Dict:
         return {
@@ -175,7 +175,7 @@ class BPMNMetricsExtractor:
             num_exclusive_gateways=len(exclusive_gateways),
             num_parallel_gateways=len(parallel_gateways),
             num_events=len(event_elements),
-            num_pools=len(pools),
+            num_pools=max(1, len(pools)),  # At least 1 pool (implicit default pool if none defined)
             num_subprocesses=len(subprocesses),
             num_data_objects=len(data_objects) + len(data_object_refs),
             task_names=task_names,

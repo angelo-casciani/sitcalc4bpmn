@@ -3,7 +3,7 @@
 BPMN STRUCTURAL METRICS SUMMARY - Exams BPMN (Projection & Verification)
 ================================================================================
 
-Generated: 2025-11-13 11:59:48
+Generated: 2026-01-17 15:03:23
 Dataset: Exams BPMN (Projection & Verification)
 Source File: bpmn_metrics_exams.csv
 
@@ -15,7 +15,7 @@ Total Models Analyzed: 10
 Total Tasks:           120
 Total Gateways:        64
 Total Events:          190
-Total Elements:        407
+Total Elements:        473
 
 ================================================================================
 TASKS STATISTICS
@@ -87,20 +87,20 @@ Total:          88 data objects
 TOTAL ELEMENTS STATISTICS
 ================================================================================
 
-Average:        40.7 elements/model
-Median:         40.0 elements/model
-Minimum:        20 elements/model
-Maximum:        57 elements/model
+Average:        47.3 elements/model
+Median:         44.5 elements/model
+Minimum:        31 elements/model
+Maximum:        73 elements/model
 
 ================================================================================
 TOP 5 MOST COMPLEX MODELS (by total elements)
 ================================================================================
 
-1. process_3.bpmn: 57 elements (tasks=15, gateways=9, events=29)
-2. process_7.bpmn: 56 elements (tasks=17, gateways=5, events=31)
-3. process_5.bpmn: 50 elements (tasks=10, gateways=7, events=28)
-4. process_1.bpmn: 48 elements (tasks=10, gateways=7, events=25)
-5. process_9.bpmn: 41 elements (tasks=12, gateways=5, events=21)
+1. process_3.bpmn: 73 elements (tasks=15, gateways=9, events=29)
+2. process_7.bpmn: 57 elements (tasks=17, gateways=5, events=31)
+3. process_5.bpmn: 51 elements (tasks=10, gateways=7, events=28)
+4. process_1.bpmn: 50 elements (tasks=10, gateways=7, events=25)
+5. process_4.bpmn: 46 elements (tasks=10, gateways=3, events=22)
 
 ================================================================================
 TOP 5 MODELS WITH MOST TASKS

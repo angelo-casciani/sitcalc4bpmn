@@ -3,7 +3,7 @@
 BPMN STRUCTURAL METRICS SUMMARY - Processed Dataset (Legality & Conformance)
 ================================================================================
 
-Generated: 2025-11-13 11:59:48
+Generated: 2026-01-17 15:03:23
 Dataset: Processed Dataset (Legality & Conformance)
 Source File: bpmn_metrics_processed.csv
 
@@ -15,7 +15,7 @@ Total Models Analyzed: 89
 Total Tasks:           1254
 Total Gateways:        899
 Total Events:          248
-Total Elements:        2413
+Total Elements:        2444
 
 ================================================================================
 TASKS STATISTICS
@@ -57,11 +57,11 @@ Maximum:        9 events/model
 POOLS STATISTICS
 ================================================================================
 
-Average:        0.1 pools/model
-Median:         0.0 pools/model
-Minimum:        0 pools/model
+Average:        1.0 pools/model
+Median:         1.0 pools/model
+Minimum:        1 pools/model
 Maximum:        3 pools/model
-Total:          12 pools
+Total:          93 pools
 
 ================================================================================
 SUBPROCESSES STATISTICS
@@ -87,8 +87,8 @@ Total:          43 data objects
 TOTAL ELEMENTS STATISTICS
 ================================================================================
 
-Average:        27.1 elements/model
-Median:         25.0 elements/model
+Average:        27.5 elements/model
+Median:         26.0 elements/model
 Minimum:        19 elements/model
 Maximum:        46 elements/model
 
@@ -98,9 +98,9 @@ TOP 5 MOST COMPLEX MODELS (by total elements)
 
 1. process_31.bpmn: 46 elements (tasks=20, gateways=24, events=2)
 2. process_13.bpmn: 43 elements (tasks=11, gateways=23, events=9)
-3. process_81.bpmn: 41 elements (tasks=18, gateways=18, events=4)
-4. process_49.bpmn: 40 elements (tasks=21, gateways=14, events=4)
-5. process_58.bpmn: 40 elements (tasks=21, gateways=14, events=2)
+3. process_44.bpmn: 43 elements (tasks=20, gateways=9, events=8)
+4. process_30.bpmn: 41 elements (tasks=19, gateways=12, events=6)
+5. process_81.bpmn: 40 elements (tasks=18, gateways=18, events=4)
 
 ================================================================================
 TOP 5 MODELS WITH MOST TASKS

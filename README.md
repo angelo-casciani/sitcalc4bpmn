@@ -2,6 +2,8 @@
 
 A software suite for translating [BPMN](https://www.bpmn.org/) (Business Process Model and Notation) models to [IndiGolog](https://github.com/ai-krml-uoft/indigolog) processes and performing formal reasoning tasks over them using the *Situation Calculus* and *ConGolog*.
 
+Read the full paper at: [Formal semantics for knowledge representation and automated reasoning in BPMN process models](https://www.sciencedirect.com/science/article/pii/S0306437926000323?via%3Dihub#appSB).
+
 ## Overview
 
 This project provides a complete pipeline from BPMN models to formal reasoning:
@@ -277,3 +279,23 @@ For the dataset, setup, and results of the evaluation for the suite, please refe
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+## Citation
+
+If you use this repository in your research, please cite:
+
+```bibtex
+@article{CASCIANI2026102718,
+title = {Formal semantics for knowledge representation and automated reasoning in BPMN process models},
+journal = {Information Systems},
+volume = {140},
+pages = {102718},
+year = {2026},
+issn = {0306-4379},
+doi = {https://doi.org/10.1016/j.is.2026.102718},
+url = {https://www.sciencedirect.com/science/article/pii/S0306437926000323},
+author = {Angelo Casciani and Simone Agostinelli and Yves Lespérance and Andrea Marrella and Sebastian Sardiña},
+keywords = {AI-augmented business process management systems, ConGolog, Formal semantics of BPMN, Knowledge representation and automated reasoning, Process modeling, Situation Calculus},
+abstract = {The Business Process Modeling Notation (BPMN) is the de facto standard for business process modeling. While widely adopted for its intuitive graphical notation, its execution semantics described in natural language lacks a commonly agreed formal foundation, leading to variability in execution across different BPM systems (BPMSs) and increasing the risk of creating models with semantic errors costly to correct at runtime. Although many formalisms have been used to model portions of BPMN, their reasoning capabilities are mostly restricted to control-flow, making them unsuitable for semantic analysis where data and global exception handling play a central role in execution. To address this, we propose a formalization from BPMN to ConGolog, a logical concurrent processes language based on the Situation Calculus, for representing and reasoning about dynamic domains. A major innovation is using ConGolog to rigorously capture the semantics of BPMN global exceptions. Our framework supports advanced reasoning, allowing for semantic analysis of BPMN models before execution to predict runtime errors within a safe simulation setting, while laying the foundation for reasoning layers in next-generation AI-augmented BPMSs. We validate the approach through a prototype and comprehensive evaluation, demonstrating the computational feasibility of the translation and the semantic correctness of reasoning tasks.}
+}
+```

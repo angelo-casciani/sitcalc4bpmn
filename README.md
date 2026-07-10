@@ -1,5 +1,10 @@
 # sitcalc4bpmn
 
+[![Sapienza](https://img.shields.io/badge/Sapienza_University_of_Rome-blue?style=flatlabelColor=781A2D&color=781A2D&logoColor=white)](https://www.diag.uniroma1.it/gruppi-di-ricerca/25462)
+[![DOI](https://img.shields.io/badge/DOI-/zenodo.21293481-blue.svg)](https://doi.org/10.5281/zenodo.21293481)
+[![Version](https://img.shields.io/badge/release-v1.0.0-blue)](https://github.com/angelo-casciani/sitcalc4bpmn/releases)
+[![GitHub license](https://img.shields.io/github/license/angelo-casciani/sitcalc4bpmn)](https://github.com/angelo-casciani/sitcalc4bpmn/blob/main/LICENSE)
+
 A software suite for translating [BPMN](https://www.bpmn.org/) (Business Process Model and Notation) models to [IndiGolog](https://github.com/ai-krml-uoft/indigolog) processes and performing formal reasoning tasks over them using the *Situation Calculus* and *ConGolog*.
 
 Read the full paper at: [Formal semantics for knowledge representation and automated reasoning in BPMN process models](https://www.sciencedirect.com/science/article/pii/S0306437926000323?via%3Dihub#appSB).
